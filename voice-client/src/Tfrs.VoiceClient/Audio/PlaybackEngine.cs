@@ -26,8 +26,17 @@ internal sealed class PlaybackEngine : IDisposable
     private readonly MixingSampleProvider _mixer;
     private readonly VolumeSampleProvider _masterVolume;
     private readonly MuteGateSampleProvider _muteGate;
+    private readonly MeteringSampleProvider _metering;
     private readonly ConcurrentDictionary<uint, RemoteVoiceSource> _sources = new();
     private WasapiOut? _output;
+
+    /// <summary>RMS level of what's actually audible (post mute-gate) — drives the "incoming
+    /// voice" meter. Fires on the WASAPI render thread.</summary>
+    public event Action<float>? LevelMeasured
+    {
+        add => _metering.LevelMeasured += value;
+        remove => _metering.LevelMeasured -= value;
+    }
 
     public bool SpeakerMuted
     {
@@ -49,13 +58,14 @@ internal sealed class PlaybackEngine : IDisposable
         };
         _masterVolume = new VolumeSampleProvider(_mixer) { Volume = 1f };
         _muteGate = new MuteGateSampleProvider(_masterVolume);
+        _metering = new MeteringSampleProvider(_muteGate); // after the mute gate: muted reads as 0
     }
 
     public void Start(MMDevice device)
     {
         Stop();
         _output = new WasapiOut(device, AudioClientShareMode.Shared, true, 40);
-        _output.Init(_muteGate.ToWaveProvider());
+        _output.Init(_metering.ToWaveProvider());
         _output.Play();
     }
 

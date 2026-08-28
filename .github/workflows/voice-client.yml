@@ -26,11 +26,10 @@ jobs:
 
       - run: dotnet build -c Release
 
-      # Self-contained (no separate .NET runtime install needed) but NOT single-file: an ordinary
-      # folder of DLLs reads as a normal .NET app to AV/SmartScreen, where a self-extracting single
-      # exe bundle tends to trip more heuristics — see docs/av-false-positives.md.
+      # Single-file, self-contained (settings live in the .csproj) — one .exe, no separate
+      # .NET runtime install needed.
       - name: Publish
-        run: dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o publish
+        run: dotnet publish -c Release -o publish
 
       - uses: actions/upload-artifact@v4
         with:

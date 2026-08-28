@@ -12,8 +12,16 @@
          needs real culture data (XmlLanguage.GetSpecificCulture etc.) and throws at startup
          without it. -->
     <!-- Plain, well-known, source-available dependencies (NAudio, Concentus) instead of hand-rolled
-         native interop / bundled unsigned DLLs — keeps the binary boring, which is exactly what
-         AV/SmartScreen heuristics want to see. -->
+         native interop — keeps the binary boring, which is exactly what AV/SmartScreen heuristics
+         want to see. -->
+
+    <!-- Single-file publish: one .exe instead of a folder of 100+ framework DLLs (chosen over the
+         many-loose-DLLs layout on request — see docs/av-false-positives.md for the tradeoff this
+         reopens). Only affects `dotnet publish`, not `dotnet build`. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>

@@ -21,6 +21,7 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     private readonly TransmitController _transmit;
     private readonly AddonBridgeServer _bridge = new();
     private readonly System.Threading.Timer _statusHeartbeat;
+    private readonly StaWorker _audioThread = new();
 
     private readonly Dictionary<uint, string> _sessionToUid = new();
     private readonly Dictionary<string, uint> _uidToSession = new();
@@ -35,6 +36,7 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     public event Action<string>? ConnectError;
     public event Action<bool>? TransmittingChanged;
     public event Action<float>? MicLevelMeasured;
+    public event Action<float>? SpeakerLevelMeasured;
     public event Action<bool>? ExtensionConnectionChanged;
 
     /// <summary>Total clients currently on the voice server, including this one. No names/roster
@@ -61,6 +63,7 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
 
         _transmit.TransmittingChanged += t => { _isTransmitting = t; TransmittingChanged?.Invoke(t); };
         _transmit.LevelMeasured += l => MicLevelMeasured?.Invoke(l);
+        _playback.LevelMeasured += l => SpeakerLevelMeasured?.Invoke(l);
 
         _bridge.UnitsReceived += OnUnitsReceived;
         _bridge.LocalOverrideReceived += v => _transmit.AddonTransmitOverride = v;
@@ -104,15 +107,26 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     {
         Settings.InputDeviceId = deviceId;
         if (!IsConnected) return;
-        var device = AudioDevices.Resolve(deviceId, NAudio.CoreAudioApi.DataFlow.Capture);
-        if (device is not null) _micCapture.Start(device);
+        // WASAPI device resolution AND activation are COM calls that need an STA apartment (see
+        // StaWorker) — and both need to run on the *same* STA thread: an MMDevice resolved on one
+        // STA thread (e.g. the UI thread) is a COM proxy tied to that apartment, and activating it
+        // from a different STA thread (a plain Task.Run is MTA and fails even harder) throws
+        // InvalidCastException/E_NOINTERFACE despite looking like a valid object reference.
+        _ = _audioThread.InvokeAsync(() =>
+        {
+            var device = AudioDevices.Resolve(deviceId, NAudio.CoreAudioApi.DataFlow.Capture);
+            if (device is not null) _micCapture.Start(device);
+        });
     }
 
     public void SetOutputDevice(string? deviceId)
     {
         Settings.OutputDeviceId = deviceId;
-        var device = AudioDevices.Resolve(deviceId, NAudio.CoreAudioApi.DataFlow.Render);
-        if (device is not null) _playback.Start(device);
+        _ = _audioThread.InvokeAsync(() =>
+        {
+            var device = AudioDevices.Resolve(deviceId, NAudio.CoreAudioApi.DataFlow.Render);
+            if (device is not null) _playback.Start(device);
+        });
     }
 
     public async Task<bool> ConnectAsync(string host, int port, string password, string displayName)
@@ -121,19 +135,29 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
         bool ok = await _network.ConnectAsync(host, port, password, uid, displayName, CancellationToken.None);
         if (!ok) return false;
 
-        var inputDevice = AudioDevices.Resolve(Settings.InputDeviceId, NAudio.CoreAudioApi.DataFlow.Capture);
-        if (inputDevice is not null) _micCapture.Start(inputDevice);
+        // Same reasoning as SetInputDevice/SetOutputDevice above — resolve AND activate on the
+        // same STA thread. This used to run inline here on the UI thread and froze the window for
+        // as long as WASAPI setup took; then briefly ran on a second STA thread while still
+        // resolving devices on the caller's (UI) thread, which crashed activation outright.
+        await _audioThread.InvokeAsync(() =>
+        {
+            var inputDevice = AudioDevices.Resolve(Settings.InputDeviceId, NAudio.CoreAudioApi.DataFlow.Capture);
+            if (inputDevice is not null) _micCapture.Start(inputDevice);
 
-        var outputDevice = AudioDevices.Resolve(Settings.OutputDeviceId, NAudio.CoreAudioApi.DataFlow.Render);
-        if (outputDevice is not null) _playback.Start(outputDevice);
+            var outputDevice = AudioDevices.Resolve(Settings.OutputDeviceId, NAudio.CoreAudioApi.DataFlow.Render);
+            if (outputDevice is not null) _playback.Start(outputDevice);
+        });
 
         return true;
     }
 
     public async Task DisconnectAsync()
     {
-        _micCapture.Stop();
-        _playback.Stop();
+        await _audioThread.InvokeAsync(() =>
+        {
+            _micCapture.Stop();
+            _playback.Stop();
+        });
         await _network.DisconnectAsync();
         lock (_rosterLock)
         {
@@ -252,8 +276,12 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _statusHeartbeat.Dispose();
-        _micCapture.Dispose();
-        _playback.Dispose();
+        await _audioThread.InvokeAsync(() =>
+        {
+            _micCapture.Dispose();
+            _playback.Dispose();
+        });
+        _audioThread.Dispose();
         await _network.DisposeAsync();
         await _bridge.DisposeAsync();
     }

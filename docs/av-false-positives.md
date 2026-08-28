@@ -9,10 +9,13 @@ positive, plus a prepared hook to add a certificate later.
 - **No packing/obfuscation.** No ConfuserEx, no Themida, no custom packer — exactly the pattern
   that heuristic AV engines flag most aggressively ("packed, self-extracting code" is a core
   signal for practically every heuristic engine).
-- **No single-file bundle** for the client build (`PublishSingleFile=false` in
-  `.github/workflows/voice-client.yml`). A self-contained but "ordinary" folder with many `.dll`
-  files reads as a normal .NET app to AV engines; a single self-extracting exe (even though
-  technically harmless) structurally resembles a dropper.
+- **Single-file publish** (`PublishSingleFile` in `Tfrs.VoiceClient.csproj`) is used for the
+  distributed client, by explicit choice over a many-DLL folder — one `.exe` is much easier to
+  hand to a player than a folder of 100+ framework DLLs. Worth naming honestly: this does move
+  the needle slightly *against* the AV-friendliness goal below (a self-extracting single-file
+  bundle structurally resembles what a packer/dropper looks like, more than an ordinary DLL
+  folder does) — the other mitigations here (no obfuscation, no compression on top of it,
+  well-known dependencies, a public build) are what keep that risk in check, not the file layout.
 - **No low-level keyboard hooks** (`SetWindowsHookEx(WH_KEYBOARD_LL, …)`). Push-to-talk instead
   uses targeted polling of a single configured key via `GetAsyncKeyState`
   (`Hotkeys/PttKeyPoller.cs`) — works just as reliably without focus, but doesn't read every

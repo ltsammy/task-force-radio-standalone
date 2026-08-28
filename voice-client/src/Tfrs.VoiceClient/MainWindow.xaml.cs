@@ -37,6 +37,11 @@ public partial class MainWindow : Window
         PasswordBox.Password = _cliArgs.Password ?? _settings.ServerPassword;
         if (!string.IsNullOrWhiteSpace(_cliArgs.Uid)) _settings.LocalUid = _cliArgs.Uid;
 
+        // Launched by an external launcher with connection details already decided — an average
+        // player doesn't need to see or edit the server IP/port/password.
+        if (!string.IsNullOrWhiteSpace(_cliArgs.Host))
+            ServerGroupBox.Visibility = Visibility.Collapsed;
+
         PopulateDevices();
         MicVolumeSlider.Value = _settings.MicVolume;
         SpeakerVolumeSlider.Value = _settings.SpeakerVolume;
@@ -49,6 +54,7 @@ public partial class MainWindow : Window
         _coordinator.ConnectError += msg => Dispatcher.BeginInvoke(() => Log($"Verbindung fehlgeschlagen: {msg}"));
         _coordinator.TransmittingChanged += t => Dispatcher.BeginInvoke(() => StatusText.Text = t ? "Verbunden — sendet…" : "Verbunden");
         _coordinator.MicLevelMeasured += level => Dispatcher.BeginInvoke(() => MicLevelBar.Value = Math.Min(level, MicLevelBar.Maximum));
+        _coordinator.SpeakerLevelMeasured += level => Dispatcher.BeginInvoke(() => SpeakerLevelBar.Value = Math.Min(level, SpeakerLevelBar.Maximum));
         _coordinator.ExtensionConnectionChanged += connected => Dispatcher.BeginInvoke(() =>
             ExtensionStatusText.Text = connected ? "Arma-Addon: verbunden" : "Arma-Addon: nicht verbunden");
         _coordinator.ConnectedCountChanged += count => Dispatcher.BeginInvoke(() =>
@@ -80,12 +86,16 @@ public partial class MainWindow : Window
 
     private void PopulateDevices()
     {
+        // Id = null means "follow the OS default" (AudioDevices.Resolve already treats a null/
+        // empty id that way) — listed first so it's also what a fresh install lands on.
         InputDeviceCombo.Items.Clear();
+        InputDeviceCombo.Items.Add(new DeviceItem(null, "Systemstandard"));
         foreach (var d in AudioDevices.ListInputs())
             InputDeviceCombo.Items.Add(new DeviceItem(d.Id, d.Name));
         SelectMatching(InputDeviceCombo, _settings.InputDeviceId);
 
         OutputDeviceCombo.Items.Clear();
+        OutputDeviceCombo.Items.Add(new DeviceItem(null, "Systemstandard"));
         foreach (var d in AudioDevices.ListOutputs())
             OutputDeviceCombo.Items.Add(new DeviceItem(d.Id, d.Name));
         SelectMatching(OutputDeviceCombo, _settings.OutputDeviceId);
@@ -100,7 +110,7 @@ public partial class MainWindow : Window
         if (combo.Items.Count > 0) combo.SelectedIndex = 0;
     }
 
-    private sealed record DeviceItem(string Id, string Name)
+    private sealed record DeviceItem(string? Id, string Name)
     {
         public override string ToString() => Name;
     }
