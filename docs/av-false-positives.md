@@ -1,52 +1,51 @@
-# Vermeidung von Antivirus-/SmartScreen-Fehlalarmen
+# Avoiding antivirus/SmartScreen false positives
 
-Entscheidung (siehe Projektnotizen): vorerst **kein Code-Signing-Zertifikat** (kostet Geld, braucht
-eine registrierte Organisation) — stattdessen Best Practices, die das Risiko eines False-Positives
-strukturell reduzieren, plus eine vorbereitete Stelle, um später ein Zertifikat einzuhängen.
+Decision (see project notes): no code-signing certificate for now (costs money, needs a
+registered organization) — instead, best practices that structurally reduce the risk of a false
+positive, plus a prepared hook to add a certificate later.
 
-## Was wir konkret vermeiden
+## What we specifically avoid
 
-- **Kein Packing/Obfuskierung.** Kein ConfuserEx, kein Themida, kein Custom-Packer — genau das
-  Muster, das heuristische AV-Engines am aggressivsten flaggen ("gepackter, sich selbst
-  entpackender Code" ist ein Kernsignal für praktisch jede Heuristik-Engine).
-- **Kein Single-File-Bundle** für den Client-Build (`PublishSingleFile=false` in
-  `.github/workflows/voice-client.yml`). Ein self-contained, aber "normaler" Ordner mit vielen
-  `.dll`-Dateien sieht für AV-Engines wie eine gewöhnliche .NET-App aus; ein einzelnes,
-  selbst-entpackendes Exe (auch wenn technisch harmlos) ähnelt strukturell einem Dropper.
-- **Keine Low-Level-Keyboard-Hooks** (`SetWindowsHookEx(WH_KEYBOARD_LL, …)`). Push-to-Talk nutzt
-  stattdessen gezieltes Polling einer einzelnen konfigurierten Taste über `GetAsyncKeyState`
-  (`Hotkeys/PttKeyPoller.cs`) — funktioniert genauso zuverlässig auch ohne Fokus, liest aber nicht
-  jeden Tastendruck im System mit. Mute-Toggles nutzen die Standard-Win32-API `RegisterHotKey`
-  (`Hotkeys/GlobalHotkeyManager.cs`) — dieselbe API, die praktisch jede App mit globalen Shortcuts
-  verwendet.
-- **Keine Prozess-Injection, kein DLL-Side-Loading, kein Lesen/Schreiben in fremde Prozesse.** Die
-  einzige plattformübergreifende IPC ist eine benannte Pipe zur eigenen Arma-Extension
-  (`docs/protocol-ipc-bridge.md`) — Standard-Windows-IPC, kein Memory-Patching.
-- **Bekannte, quelloffene Abhängigkeiten** (NAudio, Concentus) statt eigener nativer
-  Audio-Interop-DLLs. Weniger unbekannte Binärdateien im Auslieferungsordner, die eine
-  Reputationsprüfung neu aufbauen müssten.
+- **No packing/obfuscation.** No ConfuserEx, no Themida, no custom packer — exactly the pattern
+  that heuristic AV engines flag most aggressively ("packed, self-extracting code" is a core
+  signal for practically every heuristic engine).
+- **No single-file bundle** for the client build (`PublishSingleFile=false` in
+  `.github/workflows/voice-client.yml`). A self-contained but "ordinary" folder with many `.dll`
+  files reads as a normal .NET app to AV engines; a single self-extracting exe (even though
+  technically harmless) structurally resembles a dropper.
+- **No low-level keyboard hooks** (`SetWindowsHookEx(WH_KEYBOARD_LL, …)`). Push-to-talk instead
+  uses targeted polling of a single configured key via `GetAsyncKeyState`
+  (`Hotkeys/PttKeyPoller.cs`) — works just as reliably without focus, but doesn't read every
+  keystroke in the system. Mute toggles use the standard Win32 API `RegisterHotKey`
+  (`Hotkeys/GlobalHotkeyManager.cs`) — the same API practically every app with global shortcuts
+  uses.
+- **No process injection, no DLL side-loading, no reading/writing into foreign processes.** The
+  only cross-process IPC is a named pipe to our own Arma extension
+  (`docs/protocol-ipc-bridge.md`) — standard Windows IPC, no memory patching.
+- **Well-known, open-source dependencies** (NAudio, Concentus) instead of custom native audio
+  interop DLLs. Fewer unknown binaries in the shipped folder that would need to build up their own
+  reputation from scratch.
 
-## Was wir aktiv dafür tun
+## What we actively do about it
 
-- **Öffentlicher, nachvollziehbarer Build.** Der komplette Build läuft über GitHub Actions aus
-  diesem (öffentlichen) Repo — jeder kann den Quellcode gegen das ausgelieferte Binary prüfen. Das
-  ist auch die Grundlage für spätere False-Positive-Meldungen bei AV-Herstellern (Microsoft
-  Defender, u. a. über https://www.microsoft.com/en-us/wdsi/filesubmission), da ein nachvollziehbarer
-  Build-Pfad ("Binary X aus Commit Y in Repo Z") das Verfahren beschleunigt.
-- **Stabiler Dateiname/Assembly-Name** über Releases hinweg (`TfrsVoiceClient.exe`) — häufige
-  Namens-/Hash-Änderungen zwischen Versionen erschweren es Reputationssystemen (SmartScreen
-  arbeitet u. a. mit Download-Häufigkeit pro Datei-Hash), Vertrauen aufzubauen.
-- **Reserve für Code-Signing.** `.github/workflows/voice-client.yml` hat bewusst noch keinen
-  Signing-Schritt, ist aber so aufgebaut, dass ein `signtool sign …`-Step nach dem `dotnet publish`
-  einfach ergänzt werden kann, sobald ein Zertifikat vorhanden ist (Secrets: Zertifikatsdatei/PFX +
-  Passwort als GitHub-Secret). Signierte + im Zeitverlauf zunehmend heruntergeladene Builds sind der
-  mit Abstand wirksamste Hebel gegen SmartScreen-Warnungen — die hier beschriebenen Maßnahmen
-  reduzieren nur das Grundrisiko, ersetzen ein Zertifikat aber nicht vollständig.
+- **Public, auditable build.** The entire build runs through GitHub Actions from this (public)
+  repo — anyone can check the source against the shipped binary. This is also the basis for later
+  false-positive reports to AV vendors (Microsoft Defender, among others, via
+  https://www.microsoft.com/en-us/wdsi/filesubmission) — a traceable build path ("binary X from
+  commit Y in repo Z") speeds up that process.
+- **Stable file/assembly name** across releases (`TfrsVoiceClient.exe`) — frequent name/hash
+  changes between versions make it harder for reputation systems (SmartScreen relies partly on
+  download frequency per file hash) to build trust.
+- **Reserved slot for code signing.** `.github/workflows/voice-client.yml` deliberately has no
+  signing step yet, but is structured so a `signtool sign …` step can be added right after
+  `dotnet publish` once a certificate exists (secrets: certificate/PFX file + password as GitHub
+  secrets). Signed builds that accumulate downloads over time are by far the most effective lever
+  against SmartScreen warnings — the measures listed here only reduce the baseline risk, they
+  don't fully replace a certificate.
 
-## Was das NICHT löst
+## What this does NOT solve
 
-Auch mit allen oben genannten Maßnahmen wird eine neue, unsignierte .exe von einem bislang
-unbekannten Publisher bei den ersten Downloads mit hoher Wahrscheinlichkeit eine
-SmartScreen-"Unbekannter Herausgeber"-Warnung zeigen ("Weitere Informationen" → "Trotzdem
-ausführen" ist dann nötig). Das legt sich typischerweise mit steigender Download-Zahl desselben
-signierten Hashes von selbst — ganz vermeiden lässt es sich ohne Zertifikat nicht.
+Even with all of the above, a new, unsigned .exe from a previously unknown publisher will very
+likely show a SmartScreen "Unknown publisher" warning on the first downloads ("More info" → "Run
+anyway" is then required). That typically fades on its own as download counts for the same signed
+hash increase — it can't be avoided entirely without a certificate.

@@ -1,22 +1,22 @@
-# TFRS Addon-Bridge-Protokoll (Arma-Extension ↔ Voice-Client, lokale IPC)
+# TFRS Addon Bridge Protocol (Arma extension ↔ voice client, local IPC)
 
-Diese Verbindung existiert nur auf demselben Rechner zwischen der (neu geschriebenen) Arma-3-
-Extension-DLL und dem laufenden `Tfrs.VoiceClient`-Prozess. Anders als das SQF↔Extension-Protokoll
-(siehe unten) gibt es hier **keine Altlast-Kompatibilität zu wahren** — TeamSpeak kannte diese
-Verbindung nicht, ich ersetze beide Enden komplett neu. Deshalb bewusst einfach gehalten: benannte
-Pipe + zeilenweises JSON statt Shared Memory + Binärformat.
+This connection only exists on the same machine, between the (newly written) Arma 3 extension DLL
+and the running `Tfrs.VoiceClient` process. Unlike the SQF↔extension protocol (see below), there is
+**no legacy compatibility to preserve here** — TeamSpeak never knew about this link, both ends are
+brand new. So it's kept deliberately simple: a named pipe with line-delimited JSON instead of
+shared memory with a binary format.
 
-- Pipe-Name: `\\.\pipe\TFRS_VoiceBridge`
-- Rollen: **Voice-Client** = `NamedPipeServerStream` (erstellt/lauscht), **Arma-Extension** =
-  `NamedPipeClientStream` (verbindet sich, mit Retry, falls Voice-Client noch nicht läuft).
-- Framing: UTF-8-Text, **eine JSON-Nachricht pro Zeile** (`\n`-terminiert). Kein Längenpräfix nötig,
-  lokal verlustfrei (Named Pipes sind reliable, im Gegensatz zum UDP-Netzwerkprotokoll).
-- Bei Verbindungsabbruch versucht die Extension automatisch neu zu verbinden (z. B. Voice-Client
-  wurde neu gestartet); der Voice-Client akzeptiert nach einem Disconnect wieder neue Verbindungen.
+- Pipe name: `\\.\pipe\TFRS_VoiceBridge`
+- Roles: **voice client** = `NamedPipeServerStream` (creates/listens), **Arma extension** =
+  `NamedPipeClientStream` (connects, with retry, in case the voice client isn't running yet).
+- Framing: UTF-8 text, **one JSON message per line** (`\n`-terminated). No length prefix needed —
+  the pipe is loss-free locally (named pipes are reliable, unlike the UDP network protocol).
+- On disconnect, the extension automatically tries to reconnect (e.g. the voice client was
+  restarted); the voice client accepts new connections again after a disconnect.
 
-## Nachrichten: Extension → Voice-Client
+## Messages: extension → voice client
 
-### `units` — periodisches Voll-Snapshot der hörbaren Einheiten
+### `units` — periodic full snapshot of audible units
 
 ```json
 {"t":"units","u":[
@@ -25,66 +25,66 @@ Pipe + zeilenweises JSON statt Shared Memory + Binärformat.
 ]}
 ```
 
-- `fx`: welche Effektkette der Client anwenden soll — `"direct"` (Direktsprache, keine
-  Funkverzerrung), `"sw"`, `"lr"`, `"airborne"`, `"dd"` (Diver), `"phone"`, `"speaker"`
-  (Boden-/Fahrzeug-Lautsprecher), `"intercom"`. Bestimmt die Filterkette aus
-  [`dsp-audio-pipeline.md`](dsp-audio-pipeline.md) Abschnitt 4.
-- `err`: `errorLevel` (0.0-1.0) für die Funkverzerrungskette (Foldback/Ringmod-Mix bzw. bei `"dd"`
-  die Sample-Drop-Wahrscheinlichkeit) — von der Extension bereits aus Distanz/Reichweite/Antennen-
-  Loss berechnet, siehe `dsp-audio-pipeline.md` Abschnitt 1 &amp; 6. Bei `fx:"direct"` ungenutzt (0).
+- `fx`: which effect chain the client should apply — `"direct"` (direct speech, no radio
+  distortion), `"sw"`, `"lr"`, `"airborne"`, `"dd"` (diver), `"phone"`, `"speaker"` (ground/vehicle
+  loudspeaker), `"intercom"`. Determines the filter chain from
+  [`dsp-audio-pipeline.md`](dsp-audio-pipeline.md) section 4.
+- `err`: `errorLevel` (0.0-1.0) for the radio distortion chain (foldback/ringmod mix, or for
+  `"dd"` the sample-drop probability) — already computed by the extension from distance/range/
+  antenna loss, see `dsp-audio-pipeline.md` sections 1 & 6. Unused (0) when `fx:"direct"`.
 
-- Wird vom Addon bei jeder relevanten Änderung gesendet (praktisch jeden Simulationsschritt bzw.
-  alle 50-100 ms während aktiver Funk-/Sprachkommunikation).
-- **Dies ist immer der vollständige Zustand**, kein Delta: jede UID, die in einer neuen `units`-
-  Nachricht fehlt, gilt ab sofort als nicht hörbar (Gain 0). Das macht den Client selbstheilend
-  gegenüber verpassten Updates, ohne dass Sequenznummern/Acks nötig wären.
-- `gain`: 0.0-1.0 (ggf. >1.0 für bewusste Verstärkung), vom Addon bereits vollständig berechnet
-  (Entfernungsdämpfung, Terrain-Okklusion, Antennen-/Funkqualität, Lautstärke-Setting des
-  jeweiligen Funkgeräts etc.) — der Client wendet **keine eigene Entfernungsdämpfung** an.
-- `az`: Azimut in Radiant relativ zur Blickrichtung des lokalen Spielers, `0` = genau vorne,
-  positiv = im Uhrzeigersinn (rechts), Bereich `-π..π`. Wird vom Client in einfaches
-  Equal-Power-Stereo-Panning übersetzt (kein HRTF/Binaural — reicht für klar wahrnehmbare
-  Richtung, siehe `PlaybackMixer`).
-- `muted`: harte Stummschaltung unabhängig von `gain` (z. B. Verschlüsselungscode passt nicht).
+- Sent by the addon on every relevant change (practically every simulation tick, or every 50-100ms
+  during active radio/voice communication).
+- **This is always the full state, never a delta**: any UID missing from a new `units` message is
+  considered inaudible (gain 0) from that point on. This makes the client self-healing against
+  missed updates without needing sequence numbers/acks.
+- `gain`: 0.0-1.0 (optionally >1.0 for deliberate boost), already fully computed by the addon
+  (distance attenuation, terrain occlusion, antenna/radio quality, that radio's volume setting,
+  etc.) — the client applies **no distance attenuation of its own**.
+- `az`: azimuth in radians relative to the local player's facing direction, `0` = straight ahead,
+  positive = clockwise (right), range `-π..π`. Translated by the client into simple equal-power
+  stereo panning (no HRTF/binaural — good enough for a clearly perceivable direction, see
+  `PlaybackMixer`).
+- `muted`: hard mute independent of `gain` (e.g. encryption key mismatch).
 
-### `local` — optionale Sende-Übersteuerung
+### `local` — optional transmit override
 
 ```json
 {"t":"local","transmitOverride":null}
 ```
 
-- `transmitOverride: true` erzwingt Senden unabhängig vom lokalen PTT/VAD/Dauersenden-Modus
-  (z. B. spielinterne Funk-Taste).
-- `transmitOverride: false` erzwingt Stummschaltung (z. B. Spieler bewusstlos/tot — entspricht dem
-  alten `KILLED`-Kommando).
-- `null` (oder Nachricht ganz weglassen) → der lokal im Voice-Client eingestellte Modus gilt normal.
+- `transmitOverride: true` forces transmission regardless of the local PTT/VAD/always-on mode
+  (e.g. an in-game radio PTT key).
+- `transmitOverride: false` forces silence (e.g. player unconscious/dead — equivalent to the old
+  `KILLED` command).
+- `null` (or omitting the message entirely) → the mode configured locally in the voice client
+  applies normally.
 
-## Nachrichten: Voice-Client → Extension
+## Messages: voice client → extension
 
-### `status` — Verbindungsstatus (bei Änderung + als Heartbeat alle ~1 s)
+### `status` — connection status (on change + as a ~1s heartbeat)
 
 ```json
 {"t":"status","connected":true,"sessionId":42,"micMuted":false,"speakerMuted":false,"transmitting":false,"error":null}
 ```
 
-Ersetzt die alte `TS_INFO PING`/`PONG`-Abfrage (`fnc_isTeamSpeakPluginEnabled.sqf`) — die
-Extension beantwortet das entsprechende `callExtension`-Kommando aus dem zuletzt empfangenen
-`status` statt es live über eine zweite Verbindung abzufragen.
+Replaces the old `TS_INFO PING`/`PONG` query (`fnc_isTeamSpeakPluginEnabled.sqf`) — the extension
+answers the corresponding `callExtension` command from the last-received `status` instead of
+polling it live over a second connection.
 
-### `roster` — bekannte Server-Teilnehmer (bei Änderung)
+### `roster` — known server participants (on change)
 
 ```json
 {"t":"roster","clients":[{"uid":"76561198000000001","name":"Foo"}]}
 ```
 
-Damit kann die Extension/SQF-Seite Voice-Server-Teilnehmer gegen Arma-Spieler-UIDs abgleichen,
-falls das für Diagnose/UI gebraucht wird.
+Lets the extension/SQF side match voice-server participants against Arma player UIDs, if needed
+for diagnostics/UI.
 
-## Zusammenspiel mit dem SQF-Extension-Protokoll
+## Interplay with the SQF extension protocol
 
-Das SQF↔Extension-Protokoll (`callExtension`-Tab-Strings, siehe `docs/protocol-extension-legacy.md`,
-sobald aus `old/` extrahiert) bleibt **byte-kompatibel** zur Originalversion — nur die interne
-Implementierung der Extension-DLL ändert sich: statt Shared Memory mit dem TS3-Plugin zu teilen,
-übersetzt sie SQF-Kommandos (`FREQ`, `POS`, `TANGENT`, …) in `units`/`local`-Nachrichten auf dieser
-Pipe, und beantwortet synchrone SQF-Anfragen (`TS_INFO`, `IS_SPEAKING`, …) aus dem zuletzt
-empfangenen `status`/`roster`-Zustand.
+The SQF↔extension protocol (`callExtension` tab-strings, see `docs/protocol-extension-legacy.md`)
+stays **byte-compatible** with the original — only the extension DLL's internal implementation
+changes: instead of sharing memory with the TS3 plugin, it translates SQF commands (`FREQ`, `POS`,
+`TANGENT`, …) into `units`/`local` messages on this pipe, and answers synchronous SQF requests
+(`TS_INFO`, `IS_SPEAKING`, …) from the most recently received `status`/`roster` state.

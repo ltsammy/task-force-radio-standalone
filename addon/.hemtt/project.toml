@@ -1,0 +1,19 @@
+name = "Task Force Radio Standalone"
+prefix = "tfar"
+mainprefix = "z"
+
+[version]
+major = 1
+minor = 0
+patch = 0
+git_hash = 8
+
+[files]
+include = [
+    "LICENSE.md",
+    "CONTRIBUTORS.md",
+    "manw_winner_addon_1st_emblem.paa",
+    "task_force_arrowhead_logo.paa",
+    "task_force_radio_pipe.dll",
+    "task_force_radio_pipe_x64.dll",
+]

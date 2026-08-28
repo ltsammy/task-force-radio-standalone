@@ -1,0 +1,71 @@
+name: addon
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "addon/**"
+      - ".github/workflows/addon.yml"
+  pull_request:
+    paths:
+      - "addon/**"
+  workflow_dispatch:
+
+jobs:
+  extension:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            cmake_arch: x64
+          - arch: win32
+            cmake_arch: Win32
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S addon/extensions/task_force_radio_pipe -B build/${{ matrix.arch }} -A ${{ matrix.cmake_arch }}
+      - name: Build
+        run: cmake --build build/${{ matrix.arch }} --config Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension-${{ matrix.arch }}
+          path: build/${{ matrix.arch }}/Release/*.dll
+          if-no-files-found: error
+
+  addon:
+    needs: extension
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: addon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: extension-x64
+          path: addon/
+      - uses: actions/download-artifact@v4
+        with:
+          name: extension-win32
+          path: addon/
+
+      - name: Setup HEMTT
+        uses: arma-actions/hemtt@v1
+
+      # PR builds: fast validation only, no signing/zip. Pushes to main and manual runs: full
+      # signed release (ephemeral per-build key by default — see addon/README.md "Signing").
+      - name: Build (PR)
+        if: github.event_name == 'pull_request'
+        run: hemtt build
+
+      - name: Release
+        if: github.event_name != 'pull_request'
+        run: hemtt release
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: task_force_radio_standalone-${{ github.sha }}
+          path: addon/releases/*.zip

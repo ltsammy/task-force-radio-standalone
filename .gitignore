@@ -8,6 +8,7 @@ obj/
 .vs/
 
 # C++ (Arma extension / build output)
+build/
 x64/
 Debug/
 Release/
@@ -19,10 +20,12 @@ Release/
 !voice-client/**/*.dll
 !voice-server/**/*.dll
 
-# Arma addon build output
+# Arma addon build output (HEMTT)
 *.pbo
-addon/release/
-addon/@*/
+*.bisign
+addon/.hemttout/
+addon/releases/
+*.hemttprivatekey
 
 # Misc
 *.log

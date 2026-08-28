@@ -1,32 +1,32 @@
-# TFRS Netzwerkprotokoll (Voice-Client ↔ Voice-Server)
+# TFRS Network Protocol (voice client ↔ voice server)
 
-UDP, alle Mehrbyte-Felder **little-endian**. Kein TCP-Fallback — Ziel ist minimale Latenz, nicht
-Zustellgarantie. Implementiert in `voice-server/src/Tfrs.VoiceServer/Protocol.cs` und
-`voice-client/src/Tfrs.VoiceClient/Networking/Protocol.cs` (beide Dateien müssen synchron gehalten
-werden, es gibt aktuell kein gemeinsames Shared-Projekt).
+UDP, all multi-byte fields **little-endian**. No TCP fallback — the goal is minimal latency, not
+delivery guarantees. Implemented in `voice-server/src/Tfrs.VoiceServer/Protocol.cs` and
+`voice-client/src/Tfrs.VoiceClient/Networking/Protocol.cs` (both files must be kept in sync by
+hand — there is currently no shared project between them).
 
-Jedes Paket beginnt mit einem `byte PacketType`. Strings sind `byte length` + UTF-8-Bytes
-(max. 255 Byte, praktisch aber viel kürzer begrenzt, siehe Tabelle).
+Every packet starts with a `byte PacketType`. Strings are `byte length` + UTF-8 bytes (max 255
+bytes, but much shorter in practice — see table).
 
-Protokollversion: `1` (`Protocol.VersionMajor`).
+Protocol version: `1` (`Protocol.VersionMajor`).
 
-## Konstanten
+## Constants
 
-| Konstante | Wert |
+| Constant | Value |
 |---|---|
-| `MaxUdpPayload` | 1200 Byte (bleibt sicher unter typischer MTU, keine Fragmentierung) |
+| `MaxUdpPayload` | 1200 bytes (safely under typical MTU, no fragmentation) |
 | `MaxNameLength` | 32 |
 | `MaxUidLength` | 40 |
-| `MaxOpusFrameLength` | 500 Byte |
+| `MaxOpusFrameLength` | 500 bytes |
 
-## Pakettypen
+## Packet types
 
-| Wert | Name | Richtung |
+| Value | Name | Direction |
 |---|---|---|
 | 1 | ConnectRequest | Client → Server |
 | 2 | ConnectAccept | Server → Client |
 | 3 | ConnectReject | Server → Client |
-| 4 | Disconnect | beide |
+| 4 | Disconnect | both |
 | 5 | Ping | Client → Server |
 | 6 | Pong | Server → Client |
 | 7 | VoiceUp | Client → Server |
@@ -40,29 +40,29 @@ Protokollversion: `1` (`Protocol.VersionMajor`).
 ```
 byte  packetType = 1
 byte  versionMajor
-byte  passwordHash[32]      // SHA-256(UTF8(password)), roh, nicht hex-kodiert
-byte  uidLen; byte[] uid    // Arma Player-UID (z. B. Steam64-ID als String) — max 40 Byte
-byte  nameLen; byte[] name  // Anzeigename — max 32 Byte
+byte  passwordHash[32]      // SHA-256(UTF8(password)), raw, not hex-encoded
+byte  uidLen; byte[] uid    // Arma player UID (e.g. Steam64 ID as a string) — max 40 bytes
+byte  nameLen; byte[] name  // display name — max 32 bytes
 ```
 
-Der Server vergleicht `passwordHash` konstant-zeitig (`CryptographicOperations.FixedTimeEquals`)
-gegen `SHA256(TFRS_PASSWORD)`. Das ist **kein** starkes Auth-Schema (kein Salt, kein Replay-Schutz) —
-ausreichend für einen privaten, passwortgeschützten Spiel-Voice-Relay, aber nicht für öffentliche,
-feindliche Netzwerke gedacht.
+The server compares `passwordHash` in constant time (`CryptographicOperations.FixedTimeEquals`)
+against `SHA256(TFRS_PASSWORD)`. This is **not** a strong auth scheme (no salt, no replay
+protection) — good enough for a private, password-protected game voice relay, not meant for
+public, hostile networks.
 
-`uid` ist der stabile Schlüssel, über den der Arma-Addon-seitige Bridge-Client (siehe
-[`protocol-ipc-bridge.md`](protocol-ipc-bridge.md)) eine `sessionId` einer Spieleinheit zuordnet.
+`uid` is the stable key the Arma-addon-side bridge client (see
+[`protocol-ipc-bridge.md`](protocol-ipc-bridge.md)) uses to map a `sessionId` to a game unit.
 
 ### 2 — ConnectAccept (Server → Client)
 
 ```
 byte   packetType = 2
-uint32 sessionId       // vom Server vergebene, für die Verbindung eindeutige ID
+uint32 sessionId       // server-assigned, unique for this connection
 uint16 maxClients
 ```
 
-Direkt danach schickt der Server für jeden bereits verbundenen Client ein `ClientJoined`-Paket
-(kein Bulk-Snapshot, um MTU-Probleme bei 200-300 Clients zu vermeiden).
+Immediately after, the server sends one `ClientJoined` packet per already-connected client (no
+bulk snapshot, to avoid MTU issues at 200-300 clients).
 
 ### 3 — ConnectReject (Server → Client)
 
@@ -73,19 +73,19 @@ byte reason   // 1=BadPassword, 2=ServerFull, 3=VersionMismatch, 4=BadRequest
 
 ### 4 — Disconnect
 
-Client → Server: `byte packetType = 4` (kein weiteres Feld) — sauberer Verbindungsabbau.
-Server → Client wird aktuell nicht aktiv gesendet (Timeout/Kick sind aus Zeitgründen nicht
-implementiert — geplante Erweiterung, siehe `DisconnectReason`-Enum im Code).
+Client → Server: `byte packetType = 4` (no further fields) — clean connection teardown.
+Server → Client is not currently sent actively (timeout/kick weren't implemented due to time
+constraints — planned extension, see the `DisconnectReason` enum in the code).
 
 ### 5 — Ping (Client → Server)
 
 ```
 byte   packetType = 5
-uint32 clientTimestampMs   // beliebiger monotoner Client-Zeitstempel, wird nur gespiegelt
+uint32 clientTimestampMs   // arbitrary monotonic client timestamp, only echoed back
 ```
 
-Aktualisiert serverseitig `LastSeenUtc` der Session (Timeout-Schutz auch ohne aktive Sprachübertragung).
-Client sollte alle 5-10 s pingen.
+Updates the session's `LastSeenUtc` server-side (timeout protection even without active voice
+transmission). The client should ping every 5-10s.
 
 ### 6 — Pong (Server → Client)
 
@@ -94,21 +94,21 @@ byte   packetType = 6
 uint32 echoedTimestampMs
 ```
 
-RTT = `now - echoedTimestampMs` (Client-seitig gemessen).
+RTT = `now - echoedTimestampMs` (measured client-side).
 
 ### 7 — VoiceUp (Client → Server)
 
 ```
 byte   packetType = 7
-uint16 sequence      // Client-lokaler, fortlaufender Sequenzzähler
-byte   flags         // Bit0 = LastFrame (letztes Frame einer PTT-Übertragung)
-byte[] opusPayload   // 1 Opus-Frame, max. 500 Byte
+uint16 sequence      // client-local, monotonically increasing sequence counter
+byte   flags         // bit0 = LastFrame (last frame of a PTT transmission)
+byte[] opusPayload   // 1 Opus frame, max 500 bytes
 ```
 
-Der Server identifiziert den Sender über die UDP-Absender-`IPEndPoint` (muss zuvor per
-ConnectRequest registriert worden sein), **nicht** über ein Feld im Paket.
+The server identifies the sender via the UDP sender `IPEndPoint` (must have registered previously
+via ConnectRequest), **not** via a field in the packet.
 
-### 8 — VoiceDown (Server → Client, Relay von VoiceUp)
+### 8 — VoiceDown (Server → Client, relay of VoiceUp)
 
 ```
 byte   packetType = 8
@@ -118,10 +118,10 @@ byte   flags
 byte[] opusPayload
 ```
 
-Wird 1:1 an alle anderen verbundenen Clients weitergeleitet (fire-and-forget, keine Zustellgarantie,
-kein Server-seitiger Jitter-Buffer). Client muss pro `senderSessionId` einen eigenen Opus-Decoder-
-State und Jitter-Buffer halten (Opus-Decoder sind nicht zustandslos — Packet-Loss-Concealment
-funktioniert nur mit kontinuierlichem State pro Stream).
+Forwarded 1:1 to every other connected client (fire-and-forget, no delivery guarantee, no
+server-side jitter buffer). The client must keep its own Opus decoder state and jitter buffer per
+`senderSessionId` (Opus decoders aren't stateless — packet-loss concealment only works with
+continuous per-stream state).
 
 ### 9 — ClientJoined (Server → Client)
 
@@ -145,15 +145,15 @@ uint32 sessionId
 byte packetType = 11
 ```
 
-Server antwortet mit einem `ClientJoined`-Paket pro aktuell verbundenem Client (an den Anfragenden).
-Sicherheitsnetz gegen verlorene `ClientJoined`/`ClientLeft`-Broadcasts (UDP ist unzuverlässig) —
-Client sollte das z. B. alle 15-30 s aufrufen und lokal gegen seine Roster-Liste abgleichen.
+The server replies with one `ClientJoined` packet per currently connected client (sent to the
+requester). Safety net against lost `ClientJoined`/`ClientLeft` broadcasts (UDP is unreliable) —
+the client should call this e.g. every 15-30s and reconcile against its local roster list.
 
-## Bewusste Vereinfachungen (MVP)
+## Deliberate simplifications (MVP)
 
-- Kein Reliable-UDP-Layer für Control-Pakete (Connect/Roster). Mitigiert durch Client-seitige
-  Retries (ConnectRequest) bzw. periodisches `RosterRequest`.
-- Kein serverseitiger Kick/Timeout-Broadcast mit Grund an den betroffenen Client selbst (er merkt
-  es implizit am Fehlen weiterer Pong-Antworten).
-- Passwort-Hash ohne Salt/Nonce — kein Schutz gegen Offline-Rainbow-Table, ausreichend für den
-  Bedrohungsgrad "privater Spielserver".
+- No reliable-UDP layer for control packets (Connect/Roster). Mitigated by client-side retries
+  (ConnectRequest) and periodic `RosterRequest`.
+- No server-side kick/timeout broadcast with a reason to the affected client itself (it notices
+  implicitly by the absence of further Pong replies).
+- Password hash without salt/nonce — no protection against offline rainbow tables, adequate for
+  the threat level of a "private game server".

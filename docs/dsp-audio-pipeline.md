@@ -1,17 +1,16 @@
-# Audio-DSP-Pipeline (Portierung aus dem TS3-Plugin)
+# Audio DSP pipeline (ported from the TS3 plugin)
 
-Das Original berechnet 3D-Audio **komplett selbst** — TeamSpeaks eigene 3D-API wird aktiv
-neutralisiert (`systemset3DListenerAttributes`/`channelset3DAttributes` bekommen immer `(0,0,0)`,
-`onCustom3dRolloffCalculationClientEvent` setzt Rolloff hart auf `1.0`). Das heißt: der neue
-Voice-Client braucht **keine** 3D-Audio-API vom Betriebssystem/einer Engine — er bekommt rohe
-Mono-Samples pro Sprecher und wendet exakt diese Kette selbst an, gesteuert durch die vom
-Arma-Addon berechneten Werte (Distanz, Funktyp, Fahrzeug-Isolation, Antennen-Loss etc.), die über
-das Legacy-Extension-Protokoll hereinkommen.
+The original computes 3D audio **entirely itself** — TeamSpeak's own 3D API is actively
+neutralized (`systemset3DListenerAttributes`/`channelset3DAttributes` always get `(0,0,0)`,
+`onCustom3dRolloffCalculationClientEvent` hard-sets rolloff to `1.0`). Meaning: the new voice
+client needs **no** 3D audio API from the OS/an engine — it receives raw mono samples per speaker
+and applies exactly this chain itself, driven by values computed by the Arma addon (distance,
+radio type, vehicle isolation, antenna loss, etc.) that arrive over the legacy extension protocol.
 
-Alles rechnet in 48 kHz, 16-bit, wird aber intern in `Tfrs.VoiceClient` als `float` `[-1,1]`
-verarbeitet (Opus arbeitet ohnehin mit `float`/`short`-PCM bei 48 kHz mono).
+Everything computes at 48kHz, 16-bit, but is processed internally in `Tfrs.VoiceClient` as `float`
+`[-1,1]` (Opus works with `float`/`short` PCM at 48kHz mono anyway).
 
-## 1. Entfernungsdämpfung — `VolumeAttenuation`
+## 1. Distance attenuation — `VolumeAttenuation`
 
 ```csharp
 static float VolumeAttenuation(float distance, bool shouldPlayerHear, float maxAudible, float multiplier = 1.0f)
@@ -23,49 +22,53 @@ static float VolumeAttenuation(float distance, bool shouldPlayerHear, float maxA
 }
 ```
 
-−30 dB bei `distance == maxDistance`, −60 dB bei doppelter Distanz, harter Cutoff bei −60 dB.
+−30dB at `distance == maxDistance`, −60dB at double the distance, hard cutoff at −60dB.
 
-**Effektive Distanz für Funk** (inkl. Terrain-Okklusion):
+**Effective distance for radio** (incl. terrain occlusion):
 ```
 effectiveDistance = raw + terrainInterception*coef + terrainInterception*coef*(raw/2000)
 effectiveDistance *= receivingDistanceMultiplicator
 ```
-Für Direktsprache stattdessen: `distance = raw + 2 * objectInterception` (2 m Zuschlag je Objekt
-in der Sichtlinie).
+For direct speech, instead: `distance = raw + 2 * objectInterception` (2m penalty per object in
+the line of sight).
 
-Diese Werte (`terrainInterception`, `receivingDistanceMultiplicator`, `objectInterception`,
-`voiceVolume`) liefert das Arma-Addon bereits fertig berechnet über `POS`/`FREQ` — die Extension
-reicht sie 1:1 im `units`-Snapshot des Bridge-Protokolls als `gain` weiter (siehe unten, Abschnitt 6:
-Aufgabenteilung Extension/Client).
+These values (`terrainInterception`, `receivingDistanceMultiplicator`, `objectInterception`,
+`voiceVolume`) are delivered by the Arma addon already fully computed via `POS`/`FREQ` — the
+extension passes them through 1:1 as `gain` in the bridge protocol's `units` snapshot (see below,
+section 6: division of labor between extension and client).
 
-## 2. Panning (ILD) — vereinfachte Variante statt X3DAudio/HRTF
+## 2. Panning (ILD) — simplified stand-in for X3DAudio/HRTF
 
-Das Original nutzt für Direktsprache volles X3DAudio (COM, Windows-only) und für Speaker-Radios
-eine simple Cosinus-Formel. **Bewusste Vereinfachung für den neuen Client:** nur die simple Formel,
-für alle Quellen — kein Clunk/KEMAR-HRTF-Convolution-Port (unverhältnismäßiger Aufwand für den
-Zugewinn gegenüber Stereo-Panning bei den meisten Nutzern, die ohnehin kein Binaural-Setup haben).
+The original uses full X3DAudio (COM, Windows-only) for direct speech, and a simple cosine formula
+for speaker radios. **Deliberate simplification for the new client:** only the simple formula, for
+all sources — no Clunk/KEMAR HRTF convolution port (disproportionate effort for the gain over
+stereo panning for most users, who don't have a binaural setup anyway).
 
 ```csharp
-// dir = Azimut relativ zur Blickrichtung, Radiant, 0 = vorne, +.. im Uhrzeigersinn (siehe az im
-// Bridge-Protokoll)
-static (float left, float right) Pan(float dirRadians)
+// az = azimuth relative to facing direction, radians, 0 = front, positive = clockwise/right
+// (matches the "az" field in the bridge protocol). Note: sin(), not cos() — the original angle
+// this formula was ported from is measured from the right axis, not from "front"; using cos()
+// directly against an az where 0 = front pans dead center audio hard to one side. Caught while
+// cross-checking the extension's az convention against this formula — see
+// addon/extensions/task_force_radio_pipe/README.md.
+static (float left, float right) Pan(float azRadians)
 {
-    float cos = MathF.Cos(dirRadians);
-    float gainLeft  = -0.37525f * cos + 0.625f; // -21.5° in Radiant
-    float gainRight =  0.37525f * cos + 0.625f; // +21.5° in Radiant
+    float sin = MathF.Sin(azRadians);
+    float gainLeft  = -0.37525f * sin + 0.625f; // -21.5° in radians
+    float gainRight =  0.37525f * sin + 0.625f; // +21.5° in radians
     return (gainLeft, gainRight);
 }
 ```
 
-Erweiterungspunkt: Sollte später echtes HRTF gewünscht sein, lässt sich `Pan` durch eine
-Convolution-Engine ersetzen, ohne den Rest der Kette anzufassen (siehe `Audio/Dsp/IPanningModel.cs`).
+Extension point: if real HRTF is wanted later, `Pan` can be swapped for a convolution engine
+without touching the rest of the chain (see `Audio/Dsp/IPanningModel.cs`).
 
-## 3. Funkverzerrung (`RadioEffect`) — Foldback → Delay → Ringmod → HP → LP
+## 3. Radio distortion (`RadioEffect`) — foldback → delay → ringmod → HP → LP
 
-Kette pro Frame (in dieser Reihenfolge):
+Chain per frame (in this order):
 
 ```csharp
-// 1) Foldback-Verzerrung, Threshold aus mittlerem Pegel
+// 1) Foldback distortion, threshold derived from the average level
 float avg = buffer.Select(MathF.Abs).Average();
 float threshold = 0.3f * (1f - errorLevel) * (avg / 0.005f);
 for i: buffer[i] = Foldback(buffer[i], threshold);
@@ -78,14 +81,14 @@ static float Foldback(float input, float threshold)
     return input;
 }
 
-// 2) x30 Preamp, dann 50ms-Delay (reiner Ringpuffer, 100% wet — d.h. Delay-Line-Wert wird
-//    zurückgegeben, nicht mit dem Original gemischt), dann Ringmodulation
+// 2) x30 preamp, then a 50ms delay (plain ring buffer, 100% wet — i.e. the delay-line value is
+//    returned, not mixed with the original), then ring modulation
 for i: buffer[i] = RingModulation(Delay(buffer[i] * 30f), errorLevel);
 
-// Delay: Ringbuffer, DELAY_SAMPLES = SAMPLE_RATE / 20 = 2400 (50ms bei 48kHz)
+// Delay: ring buffer, DELAY_SAMPLES = SAMPLE_RATE / 20 = 2400 (50ms at 48kHz)
 float Delay(float input) { line[pos] = input; pos = (pos + 1) % 2400; return line[pos]; }
 
-// Ringmod: 90Hz-Sägezahn-Phase treibt eine sin-Rampe
+// Ringmod: a 90Hz sawtooth phase drives a sin ramp
 float RingModulation(float input, float mix)
 {
     float modulated = input * MathF.Sin(phase * MathF.PI / 2f);
@@ -94,13 +97,13 @@ float RingModulation(float input, float mix)
     return input * (1f - mix) + modulated * mix;
 }
 
-// 3) Highpass, dann Lowpass (RBJ-Biquads, siehe Abschnitt 4)
+// 3) Highpass, then lowpass (RBJ biquads, see section 4)
 ```
 
-`errorLevel` = `min(antennaLoss, effectiveDistance / senderRange)`, per Funkverbindung. Kennlinie
-(bewusst NICHT linear — Stufen bei 0.0/0.1/0.2/… mit Interpolationsfaktor `(errorLevel - stufe/10)`,
-der **nicht** auf `[0,1)` sondern `[0,0.1)` normalisiert ist — das ist ein Kuriosum im Original, muss
-aber exakt so übernommen werden, sonst klingt es hörbar anders):
+`errorLevel` = `min(antennaLoss, effectiveDistance / senderRange)`, per radio link. Response curve
+(deliberately NOT linear — steps at 0.0/0.1/0.2/… with an interpolation factor
+`(errorLevel - step/10)` that is **not** normalized to `[0,1)` but to `[0,0.1)` — this is a quirk
+in the original, but must be carried over exactly, otherwise it audibly sounds different):
 
 ```csharp
 static readonly float[] ErrorLevels = {
@@ -116,9 +119,9 @@ static float CalcErrorLevel(float errorLevel)
 }
 ```
 
-## 4. Filter-Parameter je Funktyp
+## 4. Filter parameters per radio type
 
-RBJ-Biquad-Formeln (exakt, keine externe Lib nötig):
+RBJ biquad formulas (exact, no external library needed):
 
 ```csharp
 // LowPass
@@ -126,82 +129,82 @@ double w0 = 2 * Math.PI * cutoffHz / sampleRate;
 double cs = Math.Cos(w0), sn = Math.Sin(w0), AL = sn / (2 * q);
 double b0 = (1 - cs) / 2, b1 = 1 - cs, b2 = (1 - cs) / 2;
 double a0 = 1 + AL, a1 = -2 * cs, a2 = 1 - AL;
-// HighPass: b0=(1+cs)/2, b1=-(1+cs), b2=(1+cs)/2 — a0/a1/a2 identisch zu LowPass
-// Danach alle b/a durch a0 teilen (Standard-Biquad-Normalisierung).
+// HighPass: b0=(1+cs)/2, b1=-(1+cs), b2=(1+cs)/2 — a0/a1/a2 identical to LowPass
+// Then divide all b/a by a0 (standard biquad normalization).
 ```
 
-| Funktyp | Highpass | Lowpass |
+| Radio type | Highpass | Lowpass |
 |---|---|---|
-| SW-Funk (`digital`, "Personal") | 900 Hz, Q 0.85 | 3000 Hz, Q 2.0 |
-| LR-Funk + Intercom (`digital_lr`) | 520 Hz, Q 0.97 | 1300 Hz, Q 1.0 |
-| Airborne (`airborne`) | 1000 Hz, Q 1.0 | 4000 Hz, Q 1.0 |
+| SW radio (`digital`, "Personal") | 900Hz, Q 0.85 | 3000Hz, Q 2.0 |
+| LR radio + intercom (`digital_lr`) | 520Hz, Q 0.97 | 1300Hz, Q 1.0 |
+| Airborne (`airborne`) | 1000Hz, Q 1.0 | 4000Hz, Q 1.0 |
 
-Zusätzliche Butterworth-Filter (Standard-Cascaded-Biquad-Design über bilineare Transformation,
-keine RBJ-Formel — Ordnung wie angegeben):
+Additional Butterworth filters (standard cascaded-biquad design via bilinear transform, not an RBJ
+formula — order as noted):
 
-| Zweck | Typ | Parameter |
+| Purpose | Type | Parameters |
 |---|---|---|
-| Diver-Funk (`dd`) | Bandpass Ordnung 2 | Mitte 1000 Hz, Breite 400 Hz |
-| Telefon (`phone`) | Bandpass Ordnung 2 | Mitte 1850 Hz, Breite 1550 Hz |
-| Speaker (Funk am Boden) | Bandpass Ordnung 1 | Mitte 2000 Hz, Breite 1000 Hz |
-| "Kann nicht sprechen" / untergetaucht | Lowpass Ordnung 4 | 100 Hz |
-| Fahrzeug-Isolation | Lowpass Ordnung 2 | `20000 * (1 - loss) / 4` Hz |
-| Objekt-Okklusion | Lowpass Ordnung 2 | `2000 - objCount*400` Hz (objCount ≤ 5) |
+| Diver radio (`dd`) | Bandpass order 2 | center 1000Hz, width 400Hz |
+| Phone (`phone`) | Bandpass order 2 | center 1850Hz, width 1550Hz |
+| Speaker (ground radio) | Bandpass order 1 | center 2000Hz, width 1000Hz |
+| "Can't speak" / underwater | Lowpass order 4 | 100Hz |
+| Vehicle isolation | Lowpass order 2 | `20000 * (1 - loss) / 4` Hz |
+| Object occlusion | Lowpass order 2 | `2000 - objCount*400` Hz (objCount ≤ 5) |
 
-## 5. Diver-Funk-Sonderfall (`dd`)
+## 5. Diver radio special case (`dd`)
 
-Kein Foldback/Ringmod — stattdessen zufälliges Nullsetzen einzelner Samples:
+No foldback/ringmod — instead, random zeroing of individual samples:
 ```csharp
 if (random.NextDouble() < errorLevel) buffer[i] = 0f;
-// danach Bandpass (1000Hz/400Hz, s.o.), dann *30
+// then bandpass (1000Hz/400Hz, above), then *30
 ```
-`errorLevel` hier **ungestuft** (kein `CalcErrorLevel`), direkt:
+`errorLevel` here is **unstepped** (no `CalcErrorLevel`), computed directly:
 ```
-underwaterRange = 70 + 230 * (1 - wavesLevel)   // wavesLevel 0..1 vom Addon
+underwaterRange = 70 + 230 * (1 - wavesLevel)   // wavesLevel 0..1 from the addon
 errorLevel = min(
     (underwaterDist * (range/underwaterRange) + (normalDist - underwaterDist)) / range,
     antennaLoss)
 ```
 
-## 6. Aufgabenteilung Extension ↔ Client
+## 6. Division of labor: extension ↔ client
 
-Damit der Client selbst **keine** Arma-spezifische Geometrie/Physik kennen muss (Terrain, Fahrzeuge,
-Antennen — das bleibt Domäne des Addons/der Extension), gilt folgende Arbeitsteilung:
+So the client itself needs **no** Arma-specific geometry/physics knowledge (terrain, vehicles,
+antennas — that stays the addon's/extension's domain), the work is split as follows:
 
-- **Extension (C++, im Arma-Prozess):** kennt alle SQF-Rohdaten (Distanzen, Terrain-Interception,
-  Fahrzeug-Isolation, Antennen-Loss, Funktyp/Subtype, `errorLevel`-Grundwert `distance/range`).
-  Berechnet daraus **pro hörbarer Quelle** einen fertigen `gain` (0..1, bereits inkl.
-  Entfernungsdämpfung UND `errorLevel` für die Funkverzerrung) und einen `az` (Azimut) und schickt
-  das im `units`-Snapshot des Bridge-Protokolls. Zusätzlich einen `effect`-Typ pro Quelle (SW/LR/
-  Airborne/DD/Phone/Speaker/DirectSpeech/Intercom), damit der Client die richtige Filterkette wählt.
-  *(Ergänzung zum bisherigen `units`-Schema in `protocol-ipc-bridge.md`: dort um ein optionales Feld
-  `"fx"` erweitern, sobald die Extension gebaut wird.)*
-- **Client (C#):** wendet nur noch die generische, Arma-unabhängige Signalverarbeitung an
-  (Foldback/Delay/Ringmod, RBJ/Butterworth-Filter, Panning, Mixing, Kompressor) — exakt das, was
-  in diesem Dokument steht. Kein Geometrie-/Physik-Code im Client.
+- **Extension (C++, inside the Arma process):** knows all the raw SQF data (distances, terrain
+  interception, vehicle isolation, antenna loss, radio type/subtype, the `errorLevel` base value
+  `distance/range`). Computes, **per audible source**, a finished `gain` (0..1, already including
+  distance attenuation AND the `errorLevel` for radio distortion) and an `az` (azimuth), and sends
+  that in the bridge protocol's `units` snapshot. Also an `effect` type per source (SW/LR/
+  Airborne/DD/Phone/Speaker/DirectSpeech/Intercom) so the client picks the right filter chain.
+  *(This is reflected in `protocol-ipc-bridge.md`'s `units` schema via the `"fx"`/`"err"` fields.)*
+- **Client (C#):** applies only the generic, Arma-independent signal processing (foldback/delay/
+  ringmod, RBJ/Butterworth filters, panning, mixing, compressor) — exactly what's documented here.
+  No geometry/physics code in the client.
 
-Diese Trennung ist bewusst identisch zur Originalarchitektur (SQF/Extension kennt die Spielwelt,
-"TS3-Seite" kennt nur Audio) und hält den Client testbar ohne Arma-Abhängigkeit.
+This split is deliberately identical to the original architecture (SQF/extension knows the game
+world, the "TS3 side" only knows audio) and keeps the client testable without an Arma dependency.
 
-## 7. Gain-Staging & Konstanten
+## 7. Gain staging & constants
 
-- Mono-Downmix vor Effekt: `mono = sum(channels)/channelCount`, normiert `/32766`.
-- Gain je Funktyp: `volumeLevel * 0.35`, `volumeLevel = ((radioVolume0to10 + 1) / 10) ^ 4`.
-  Bei gesenktem Headset zusätzlich `* 0.1`.
-- Mono-Panning-Modi (`leftOnly`/`rightOnly`, aus `stereoMode` im `FREQ`-Frequenzeintrag): Gain `* 1.5`.
+- Mono downmix before the effect: `mono = sum(channels)/channelCount`, normalized `/32766`.
+- Gain per radio type: `volumeLevel * 0.35`, `volumeLevel = ((radioVolume0to10 + 1) / 10) ^ 4`.
+  With the headset lowered, additionally `* 0.1`.
+- Mono panning modes (`leftOnly`/`rightOnly`, from `stereoMode` in the `FREQ` frequency entry):
+  gain `* 1.5`.
 - `CANT_SPEAK_GAIN = 14`, `SPEAKER_GAIN = 4`, `RADIO_GAIN_LR = 5`, `RADIO_GAIN_DD = 15`.
-- Nach der Kette: Clamp `[-1,1]`, zurück auf 16-bit-Skala.
-- Additive Mischung aller gleichzeitig aktiven Quellen (mit Clamp), abschließend `* globalVolume`.
-- Kompressor auf dem Endsignal: `SimpleComp`-Style, 48 kHz, Threshold 80, Release 300 ms, Attack 1 ms,
-  Ratio 0.1 — Standard-Feed-Forward-Kompressor, exakte Portierung optional (Client kann vorerst mit
-  einem einfachen Soft-Limiter starten, um Clipping bei vielen gleichzeitigen Quellen zu vermeiden;
-  echter Kompressor ist ein Nice-to-have, kein Korrektheits-Blocker).
+- After the chain: clamp `[-1,1]`, back to 16-bit scale.
+- Additive mixing of all simultaneously active sources (with clamping), finally `* globalVolume`.
+- Compressor on the final signal: `SimpleComp`-style, 48kHz, threshold 80, release 300ms, attack
+  1ms, ratio 0.1 — standard feed-forward compressor, exact port is optional (the client can start
+  with a simple soft limiter to avoid clipping when many sources are active at once; a real
+  compressor is a nice-to-have, not a correctness blocker).
 
-## 8. Bewusste Abweichungen vom Original
+## 8. Deliberate deviations from the original
 
-- Kein KEMAR-HRTF-Convolution-ITD (Clunk) — durch einfaches Cosinus-Panning ersetzt (Abschnitt 2).
-- Kein X3DAudio COM — Distanzdämpfung/Winkel werden mit den hier dokumentierten Formeln direkt
-  berechnet statt über die X3DAudio-Distanzkurve/Cone-Emitter-Simulation.
-- Antennen-Loss/Fahrzeug-Isolation/Objekt-Okklusion: Formeln sind dokumentiert (siehe
-  Recherche-Rohdaten in dieser Datei-Historie), werden aber in der Extension berechnet und fließen
-  nur noch als fertiger `gain`-Faktor beim Client an — nicht Teil der Client-DSP-Pipeline.
+- No KEMAR HRTF convolution ITD (Clunk) — replaced by simple cosine/sine panning (section 2).
+- No X3DAudio COM — distance attenuation/angle are computed directly with the formulas documented
+  here instead of via X3DAudio's distance-curve/cone-emitter simulation.
+- Antenna loss/vehicle isolation/object occlusion: formulas are documented (see the research this
+  file was built from), but are computed in the extension and only reach the client as a finished
+  `gain` factor — not part of the client's DSP pipeline.

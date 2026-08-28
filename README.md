@@ -1,49 +1,55 @@
 # Task Force Radio Standalone
 
-Ein TeamSpeak-3-unabhängiges Task Force Radio (TFAR) für Arma 3: eigener Voice-Client, eigener
-Voice-Server, und ein an das neue System angebundenes Arma-3-Addon — bei vollständiger
-Kompatibilität zu Addons/Missionen, die auf dem originalen TFAR aufbauen.
+A TeamSpeak-3-independent Task Force Radio (TFAR) for Arma 3: its own voice client, its own voice
+server, and an Arma 3 addon wired up to the new system — while staying fully compatible with
+addons/missions that build on top of the original TFAR.
 
-## Komponenten
+## Components
 
-| Ordner | Was |
+| Folder | What |
 |---|---|
-| [`addon/`](addon/) | Arma-3-Mod. `addons/` ist 1:1 aus dem Original-TFAR geforkt (Klassennamen, Funktionsnamen, CfgPatches unverändert), nur `extensions/task_force_radio_pipe/` (die native Extension-DLL) ist neu geschrieben und spricht statt mit TeamSpeak mit dem neuen Voice-Client. |
-| [`voice-client/`](voice-client/) | Windows-Desktop-Client (C#/WPF): IP/Port/Passwort verbinden, Push-to-Talk/Sprachaktivierung/Dauersenden, Mikro-/Lautsprecher-Mute mit Tastenbindung, Geräte-/Lautstärkeauswahl, 3D-Audio + Funkverzerrung nach TFAR-Vorbild. |
-| [`voice-server/`](voice-server/) | Reiner UDP-Relay-Server (C#/.NET, Native AOT), als schlankes Docker-Image (~20 MB) deploybar, ausgelegt auf 200-300 gleichzeitige Verbindungen bei minimaler Serverlast. |
+| [`addon/`](addon/) | Arma 3 mod. `addons/` is forked 1:1 from the original TFAR (class names, function names, CfgPatches unchanged) — only `extensions/task_force_radio_pipe/` (the native extension DLL) is newly written and talks to the new voice client instead of TeamSpeak. |
+| [`voice-client/`](voice-client/) | Windows desktop client (C#/WPF): connect via IP/port/password, push-to-talk/voice-activation/always-on, mic/speaker mute with key bindings, device/volume selection, 3D audio + radio distortion modeled on TFAR. |
+| [`voice-server/`](voice-server/) | Pure UDP relay server (C#/.NET, Native AOT), deployable as a lean Docker image (~20MB), built for 200-300 concurrent connections with minimal server load. |
 
-## Warum das funktioniert, ohne den ganzen Mod neu zu schreiben
+## Why this works without rewriting the whole mod
 
-TFAR trennt sauber zwischen der Funklogik (SQF, ca. 90 % des Codes — Frequenzen, Reichweiten,
-Verschlüsselung, Antennen) und dem reinen Audio-Transport (bisher: TeamSpeak 3). Beide Seiten
-reden nur über ein simples Text-Protokoll (`callExtension`) miteinander. Diese Grenze bleibt exakt
-erhalten — nur was *hinter* der Extension-DLL passiert, ist komplett neu:
+TFAR cleanly separates the radio logic (SQF, ~90% of the code — frequencies, ranges, encryption,
+antennas) from the pure audio transport (previously: TeamSpeak 3). Both sides only talk to each
+other through a simple text protocol (`callExtension`). That boundary stays exactly intact — only
+what happens *behind* the extension DLL is entirely new:
 
 ```
-Arma/SQF  ──(unverändertes callExtension-Protokoll)──▶  Extension-DLL (neu)
+Arma/SQF  ──(unchanged callExtension protocol)──▶  extension DLL (new)
                                                               │
-                                                    (neues, eigenes Pipe-Protokoll)
+                                                  (new, custom pipe protocol)
                                                               ▼
-                                                    Voice-Client (neu) ──UDP──▶ Voice-Server (neu)
+                                                  voice client (new) ──UDP──▶ voice server (new)
 ```
 
-Details: [`docs/protocol-extension-legacy.md`](docs/protocol-extension-legacy.md) (die
-Kompatibilitätsgrenze), [`docs/protocol-ipc-bridge.md`](docs/protocol-ipc-bridge.md) (Extension ↔
-Voice-Client), [`docs/protocol-network.md`](docs/protocol-network.md) (Voice-Client ↔ Voice-Server),
-[`docs/dsp-audio-pipeline.md`](docs/dsp-audio-pipeline.md) (3D-Audio/Funkeffekte im Client).
+Details: [`docs/protocol-extension-legacy.md`](docs/protocol-extension-legacy.md) (the
+compatibility boundary), [`docs/protocol-ipc-bridge.md`](docs/protocol-ipc-bridge.md) (extension ↔
+voice client), [`docs/protocol-network.md`](docs/protocol-network.md) (voice client ↔ voice
+server), [`docs/dsp-audio-pipeline.md`](docs/dsp-audio-pipeline.md) (3D audio/radio effects in the
+client).
 
 ## Status
 
-- Voice-Server: fertig, end-to-end getestet (Verbindung, Docker-Build).
-- Voice-Client: Kernfunktionen (Netzwerk, Audio-Pipeline, Hotkeys, Bridge, UI) implementiert und
-  kompiliert; noch nicht gegen die echte Extension getestet.
-- Extension-DLL (`addon/extensions/task_force_radio_pipe/`): in Arbeit.
-- CI (`.github/workflows/`): Server + Client eingerichtet; Addon-Build folgt, sobald die Extension
-  steht.
+- Voice server: done, tested end-to-end (connection, Docker build).
+- Voice client: core functionality (networking, audio pipeline, hotkeys, bridge, UI) implemented
+  and compiling; not yet tested against the real extension.
+- Extension DLL (`addon/extensions/task_force_radio_pipe/`): implemented, not yet compiled/tested
+  (no local C++ toolchain available — first real build happens in CI).
+- Addon build: switched to [HEMTT](https://hemtt.dev/) (matches the `arma3_serverside` project's
+  tooling, has built-in PBO signing). `addon/addons/` builds under it after fixing HEMTT's stricter
+  syntax requirements (unquoted array values that older tools tolerated) — purely syntactic, no
+  behavior change. See [`addon/README.md`](addon/README.md) for build/signing/Steam Workshop notes.
+- CI (`.github/workflows/`): voice-server, voice-client, and addon (extension DLLs + HEMTT) all set
+  up.
 
-## Lizenz
+## License
 
-`addon/` steht weiterhin unter der originalen Arma Public License Share Alike (siehe
-`addon/LICENSE.md`) — unverändert aus dem Original übernommen. `voice-client/` und `voice-server/`
-sind neuer, eigenständiger Code unter MIT-Lizenz (siehe jeweilige `LICENSE`-Datei) — bei Bedarf vor
-Veröffentlichung anpassen.
+`addon/` remains under the original Arma Public License Share Alike (see `addon/LICENSE.md`) —
+carried over unchanged from the original. `voice-client/` and `voice-server/` are new, standalone
+code under the MIT license (see the respective `LICENSE` file) — adjust before publishing if
+needed.
