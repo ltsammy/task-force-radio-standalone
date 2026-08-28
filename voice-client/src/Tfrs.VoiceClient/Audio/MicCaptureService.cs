@@ -22,15 +22,30 @@ internal sealed class MicCaptureService : IDisposable
     /// <summary>Raised on the capture callback thread — subscribers must not block.</summary>
     public event Action<float[]>? FrameCaptured;
 
+    /// <summary>Raised synchronously from <see cref="Start"/> if the resolved device is muted (or
+    /// at zero volume) at the Windows endpoint level — see <see cref="AudioDevices.GetEndpointVolumeState"/>.</summary>
+    public event Action? DeviceMuted;
+
     public void Start(MMDevice device)
     {
         Stop();
+
+        var (muted, volume) = AudioDevices.GetEndpointVolumeState(device);
+        if (muted || volume < 0.01f) DeviceMuted?.Invoke();
 
         _capture = new WasapiCapture(device) { ShareMode = AudioClientShareMode.Shared };
         _rawBuffer = new BufferedWaveProvider(_capture.WaveFormat)
         {
             DiscardOnBufferOverflow = true,
             BufferDuration = TimeSpan.FromSeconds(1),
+            // BufferedWaveProvider defaults ReadFully=true, which makes Read() ALWAYS return the
+            // full requested count, silently zero-padding when not enough real data has arrived
+            // yet instead of returning a short read. OnDataAvailable's drain loop below relies on
+            // a short read to know "caught up, stop and wait for the next real capture callback" —
+            // with the default, that never happens: the loop spins forever pulling zero-padded
+            // silence, pinning that thread and never producing another real frame again. This is
+            // the actual root cause of the mic meter reading permanent silence.
+            ReadFully = false,
         };
 
         ISampleProvider source = _rawBuffer.ToSampleProvider();

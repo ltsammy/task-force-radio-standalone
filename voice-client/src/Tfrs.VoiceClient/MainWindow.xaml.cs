@@ -1,8 +1,8 @@
+using System.Collections.ObjectModel;
 using System.Windows;
-using System.Windows.Input;
-using System.Windows.Interop;
 using Tfrs.VoiceClient.Audio;
 using Tfrs.VoiceClient.Hotkeys;
+using Tfrs.VoiceClient.Localization;
 using Tfrs.VoiceClient.Settings;
 
 namespace Tfrs.VoiceClient;
@@ -11,14 +11,27 @@ public partial class MainWindow : Window
 {
     private readonly AppSettings _settings;
     private readonly CommandLineArgs _cliArgs;
+    private readonly ObservableCollection<string> _logEntries = new();
     private VoiceSessionCoordinator? _coordinator;
-    private PttKeyPoller? _pttPoller;
-    private GlobalHotkeyManager? _hotkeys;
-    private int? _micMuteHotkeyId;
-    private int? _speakerMuteHotkeyId;
+    private readonly KeyPoller _pttPoller = new();
+    private readonly KeyPoller _micMutePoller = new();
+    private readonly KeyPoller _speakerMutePoller = new();
+    private SettingsWindow? _settingsWindow;
 
-    private enum BindTarget { None, Ptt, MicMute, SpeakerMute }
-    private BindTarget _awaitingBind = BindTarget.None;
+    private const long LevelMeterThrottleMs = 50; // ~20fps — smooth enough, far less Dispatcher load
+    private long _lastMicLevelUpdateTicks;
+    private long _lastSpeakerLevelUpdateTicks;
+
+    /// <summary>Called from a background audio thread — deliberately not synchronized (a torn
+    /// read/write here just means one throttle window is occasionally a few ms off, which is
+    /// irrelevant for a meter update rate; not worth a lock on a hot audio-callback path).</summary>
+    private static bool ShouldThrottledUpdate(ref long lastTicks)
+    {
+        long now = Environment.TickCount64;
+        if (now - lastTicks < LevelMeterThrottleMs) return false;
+        lastTicks = now;
+        return true;
+    }
 
     internal MainWindow(AppSettings settings, CommandLineArgs cliArgs)
     {
@@ -27,7 +40,6 @@ public partial class MainWindow : Window
         InitializeComponent();
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
-        PreviewKeyDown += MainWindow_PreviewKeyDown;
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -42,33 +54,67 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(_cliArgs.Host))
             ServerGroupBox.Visibility = Visibility.Collapsed;
 
-        PopulateDevices();
-        MicVolumeSlider.Value = _settings.MicVolume;
-        SpeakerVolumeSlider.Value = _settings.SpeakerVolume;
-        VadThresholdSlider.Value = _settings.VadThreshold;
-        SetModeRadio(_settings.TransmitMode);
-        UpdateBindButtonLabels();
+        UpdateMuteIndicators();
 
         _coordinator = new VoiceSessionCoordinator(_settings);
         _coordinator.ConnectionStateChanged += connected => Dispatcher.BeginInvoke(() => OnConnectionStateChanged(connected));
-        _coordinator.ConnectError += msg => Dispatcher.BeginInvoke(() => Log($"Verbindung fehlgeschlagen: {msg}"));
-        _coordinator.TransmittingChanged += t => Dispatcher.BeginInvoke(() => StatusText.Text = t ? "Verbunden — sendet…" : "Verbunden");
-        _coordinator.MicLevelMeasured += level => Dispatcher.BeginInvoke(() => MicLevelBar.Value = Math.Min(level, MicLevelBar.Maximum));
-        _coordinator.SpeakerLevelMeasured += level => Dispatcher.BeginInvoke(() => SpeakerLevelBar.Value = Math.Min(level, SpeakerLevelBar.Maximum));
+        _coordinator.ConnectError += msg => Dispatcher.BeginInvoke(() => Log(Loc.Format("ConnectFailed", msg)));
+        _coordinator.TransmittingChanged += t => Dispatcher.BeginInvoke(() => StatusText.Text = Loc.Get(t ? "StatusConnectedSending" : "StatusConnected"));
+        // Level meters fire per audio frame (~50/s mic, often faster for playback) — every single
+        // one becoming its own BeginInvoke can queue up on the UI thread faster than it drains,
+        // which starves real input (clicks) behind a growing backlog: exactly "the UI freezes,
+        // but only while connected" (connecting is what starts these events flowing at all).
+        // Throttling to a still-smooth ~20fps cuts that queue by 60-80% for a meter nobody needs
+        // sub-frame-accurate anyway.
+        _coordinator.MicLevelMeasured += level =>
+        {
+            if (!ShouldThrottledUpdate(ref _lastMicLevelUpdateTicks)) return;
+            Dispatcher.BeginInvoke(() => MicLevelBar.Value = Math.Min(level, MicLevelBar.Maximum));
+        };
+        _coordinator.SpeakerLevelMeasured += level =>
+        {
+            if (!ShouldThrottledUpdate(ref _lastSpeakerLevelUpdateTicks)) return;
+            Dispatcher.BeginInvoke(() => SpeakerLevelBar.Value = Math.Min(level, SpeakerLevelBar.Maximum));
+        };
+        _coordinator.MicPersistentSilence += () => Dispatcher.BeginInvoke(() =>
+        {
+            Log(Loc.Get("SilenceHint"));
+            SilenceHintText.Text = Loc.Get("SilenceHintShort");
+            SilenceHintText.Visibility = Visibility.Visible;
+        });
+        // Fires immediately on connect (not after a 3s guess) whenever the resolved mic is muted
+        // or at zero volume at the Windows endpoint level — a completely different setting from
+        // the microphone privacy toggle, and the more common real-world cause of "no signal at all".
+        _coordinator.MicDeviceMuted += () => Dispatcher.BeginInvoke(() =>
+        {
+            Log(Loc.Get("MicMutedAtOsHint"));
+            SilenceHintText.Text = Loc.Get("MicMutedAtOsHint");
+            SilenceHintText.Visibility = Visibility.Visible;
+        });
         _coordinator.ExtensionConnectionChanged += connected => Dispatcher.BeginInvoke(() =>
-            ExtensionStatusText.Text = connected ? "Arma-Addon: verbunden" : "Arma-Addon: nicht verbunden");
+            ExtensionStatusText.Text = Loc.Get(connected ? "ExtensionConnected" : "ExtensionNotConnected"));
         _coordinator.ConnectedCountChanged += count => Dispatcher.BeginInvoke(() =>
-            RosterCountText.Text = count > 0 ? $"Verbundene Clients: {count}" : "");
+            RosterCountText.Text = count > 0 ? Loc.Format("ConnectedCount", count) : "");
 
-        var windowHandle = new WindowInteropHelper(this).EnsureHandle();
-        _hotkeys = new GlobalHotkeyManager(windowHandle);
-        _pttPoller = new PttKeyPoller();
         _pttPoller.HeldChanged += held => _coordinator?.SetPttHeld(held);
         _pttPoller.SetKey(_settings.PttKey);
         _pttPoller.Start();
-        ApplyMuteHotkeys();
 
-        if (_cliArgs.AutoConnect && !string.IsNullOrWhiteSpace(HostTextBox.Text))
+        // Toggle-on-press, not held/released — see KeyPoller's doc comment for why this (not
+        // RegisterHotKey) is what makes an unmodified single key like "L" safe to bind here
+        // without also breaking that key everywhere else system-wide.
+        _micMutePoller.HeldChanged += held => { if (held) Dispatcher.BeginInvoke(ToggleMicMuted); };
+        _micMutePoller.SetKey(_settings.MicMuteKey);
+        _micMutePoller.Start();
+
+        _speakerMutePoller.HeldChanged += held => { if (held) Dispatcher.BeginInvoke(ToggleSpeakerMuted); };
+        _speakerMutePoller.SetKey(_settings.SpeakerMuteKey);
+        _speakerMutePoller.Start();
+
+        // Auto-connect whenever we already know where to connect — either a launcher passed
+        // --ip, or the user connected before and it was saved (per request: no need to click
+        // Connect again every time if the server is already known).
+        if (!string.IsNullOrWhiteSpace(HostTextBox.Text))
             await ConnectAsync();
     }
 
@@ -79,40 +125,37 @@ public partial class MainWindow : Window
         _settings.ServerPassword = PasswordBox.Password;
         _settings.Save();
 
-        _pttPoller?.Dispose();
-        _hotkeys?.Dispose();
+        _settingsWindow?.Close();
+        _pttPoller.Dispose();
+        _micMutePoller.Dispose();
+        _speakerMutePoller.Dispose();
         if (_coordinator is not null) await _coordinator.DisposeAsync();
     }
 
-    private void PopulateDevices()
+    private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
-        // Id = null means "follow the OS default" (AudioDevices.Resolve already treats a null/
-        // empty id that way) — listed first so it's also what a fresh install lands on.
-        InputDeviceCombo.Items.Clear();
-        InputDeviceCombo.Items.Add(new DeviceItem(null, "Systemstandard"));
-        foreach (var d in AudioDevices.ListInputs())
-            InputDeviceCombo.Items.Add(new DeviceItem(d.Id, d.Name));
-        SelectMatching(InputDeviceCombo, _settings.InputDeviceId);
-
-        OutputDeviceCombo.Items.Clear();
-        OutputDeviceCombo.Items.Add(new DeviceItem(null, "Systemstandard"));
-        foreach (var d in AudioDevices.ListOutputs())
-            OutputDeviceCombo.Items.Add(new DeviceItem(d.Id, d.Name));
-        SelectMatching(OutputDeviceCombo, _settings.OutputDeviceId);
-    }
-
-    private static void SelectMatching(System.Windows.Controls.ComboBox combo, string? id)
-    {
-        foreach (var obj in combo.Items)
+        if (_settingsWindow is not null)
         {
-            if (obj is DeviceItem item && item.Id == id) { combo.SelectedItem = item; return; }
+            _settingsWindow.Activate();
+            return;
         }
-        if (combo.Items.Count > 0) combo.SelectedIndex = 0;
+        if (_coordinator is null) return;
+
+        _settingsWindow = new SettingsWindow(_settings, _coordinator, _logEntries, OnHotkeysChanged)
+        {
+            Owner = this,
+        };
+        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        _settingsWindow.Show();
     }
 
-    private sealed record DeviceItem(string? Id, string Name)
+    /// <summary>SettingsWindow captures new key bindings into AppSettings directly, then calls
+    /// this so the pollers (owned here — MainWindow is the long-lived object) pick the change up.</summary>
+    private void OnHotkeysChanged()
     {
-        public override string ToString() => Name;
+        _pttPoller.SetKey(_settings.PttKey);
+        _micMutePoller.SetKey(_settings.MicMuteKey);
+        _speakerMutePoller.SetKey(_settings.SpeakerMuteKey);
     }
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e) => await ConnectAsync();
@@ -122,7 +165,7 @@ public partial class MainWindow : Window
         if (_coordinator is null) return;
         if (!int.TryParse(PortTextBox.Text, out int port))
         {
-            Log("Ungültiger Port.");
+            Log(Loc.Get("InvalidPort"));
             return;
         }
 
@@ -131,150 +174,62 @@ public partial class MainWindow : Window
         // routing, so a fixed technical name is fine — nothing shows it in the UI.
         bool ok = await _coordinator.ConnectAsync(HostTextBox.Text.Trim(), port, PasswordBox.Password, "TFRS");
         ConnectButton.IsEnabled = !ok;
-        if (ok) Log($"Verbunden mit {HostTextBox.Text}:{port}.");
+        if (ok) Log(Loc.Format("ConnectedTo", HostTextBox.Text, port));
     }
 
     private async void DisconnectButton_Click(object sender, RoutedEventArgs e)
     {
         if (_coordinator is null) return;
         await _coordinator.DisconnectAsync();
-        Log("Getrennt.");
+        Log(Loc.Get("Disconnected"));
     }
 
     private void OnConnectionStateChanged(bool connected)
     {
         ConnectButton.IsEnabled = !connected;
         DisconnectButton.IsEnabled = connected;
-        StatusText.Text = connected ? "Verbunden" : "Nicht verbunden";
-    }
-
-    private void InputDeviceCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        if (InputDeviceCombo.SelectedItem is DeviceItem item) _coordinator?.SetInputDevice(item.Id);
-    }
-
-    private void OutputDeviceCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        if (OutputDeviceCombo.SelectedItem is DeviceItem item) _coordinator?.SetOutputDevice(item.Id);
-    }
-
-    private void MicVolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (_coordinator is not null) _coordinator.MicVolume = (float)e.NewValue;
-    }
-
-    private void SpeakerVolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (_coordinator is not null) _coordinator.SpeakerVolume = (float)e.NewValue;
-    }
-
-    private void VadThresholdSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (_coordinator is not null) _coordinator.VadThreshold = (float)e.NewValue;
-    }
-
-    private void SetModeRadio(TransmitMode mode)
-    {
-        PttRadio.IsChecked = mode == TransmitMode.PushToTalk;
-        VadRadio.IsChecked = mode == TransmitMode.VoiceActivation;
-        AlwaysOnRadio.IsChecked = mode == TransmitMode.AlwaysOn;
-    }
-
-    private void TransmitModeRadio_Checked(object sender, RoutedEventArgs e)
-    {
-        if (_coordinator is null) return;
-        if (ReferenceEquals(sender, PttRadio)) _coordinator.TransmitMode = TransmitMode.PushToTalk;
-        else if (ReferenceEquals(sender, VadRadio)) _coordinator.TransmitMode = TransmitMode.VoiceActivation;
-        else if (ReferenceEquals(sender, AlwaysOnRadio)) _coordinator.TransmitMode = TransmitMode.AlwaysOn;
+        StatusText.Text = Loc.Get(connected ? "StatusConnected" : "StatusNotConnected");
     }
 
     private void MicMuteToggle_Click(object sender, RoutedEventArgs e)
     {
         if (_coordinator is not null) _coordinator.MicMuted = MicMuteToggle.IsChecked == true;
+        UpdateMuteIndicators();
     }
 
     private void SpeakerMuteToggle_Click(object sender, RoutedEventArgs e)
     {
         if (_coordinator is not null) _coordinator.SpeakerMuted = SpeakerMuteToggle.IsChecked == true;
+        UpdateMuteIndicators();
     }
 
-    private void PttBindButton_Click(object sender, RoutedEventArgs e) => BeginBind(BindTarget.Ptt, PttBindButton);
-    private void MicMuteBindButton_Click(object sender, RoutedEventArgs e) => BeginBind(BindTarget.MicMute, MicMuteBindButton);
-    private void SpeakerMuteBindButton_Click(object sender, RoutedEventArgs e) => BeginBind(BindTarget.SpeakerMute, SpeakerMuteBindButton);
-
-    private void BeginBind(BindTarget target, System.Windows.Controls.Button button)
+    private void ToggleMicMuted()
     {
-        _awaitingBind = target;
-        button.Content = "Taste drücken…";
-        Keyboard.Focus(this);
+        MicMuteToggle.IsChecked = !(MicMuteToggle.IsChecked == true);
+        if (_coordinator is not null) _coordinator.MicMuted = MicMuteToggle.IsChecked == true;
+        UpdateMuteIndicators();
     }
 
-    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    private void ToggleSpeakerMuted()
     {
-        if (_awaitingBind == BindTarget.None) return;
-        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
-        if (key == Key.None) return;
-
-        int vKey = KeyInterop.VirtualKeyFromKey(key);
-        var target = _awaitingBind;
-        _awaitingBind = BindTarget.None;
-        e.Handled = true;
-
-        switch (target)
-        {
-            case BindTarget.Ptt:
-                _settings.PttKey = vKey;
-                _pttPoller?.SetKey(vKey);
-                break;
-            case BindTarget.MicMute:
-                _settings.MicMuteKey = vKey;
-                ApplyMuteHotkeys();
-                break;
-            case BindTarget.SpeakerMute:
-                _settings.SpeakerMuteKey = vKey;
-                ApplyMuteHotkeys();
-                break;
-        }
-        UpdateBindButtonLabels();
+        SpeakerMuteToggle.IsChecked = !(SpeakerMuteToggle.IsChecked == true);
+        if (_coordinator is not null) _coordinator.SpeakerMuted = SpeakerMuteToggle.IsChecked == true;
+        UpdateMuteIndicators();
     }
 
-    private void ApplyMuteHotkeys()
+    /// <summary>Keeps every visual cue for "am I muted right now" in sync: toggle button color
+    /// (via IsChecked, styled red in App.xaml) AND text, plus a badge next to the connection
+    /// status so it's visible without looking away.</summary>
+    private void UpdateMuteIndicators()
     {
-        if (_hotkeys is null) return;
+        bool micMuted = MicMuteToggle.IsChecked == true;
+        bool speakerMuted = SpeakerMuteToggle.IsChecked == true;
 
-        if (_micMuteHotkeyId is int oldMic) { _hotkeys.Unregister(oldMic); _micMuteHotkeyId = null; }
-        if (_speakerMuteHotkeyId is int oldSpk) { _hotkeys.Unregister(oldSpk); _speakerMuteHotkeyId = null; }
-
-        try
-        {
-            if (_settings.MicMuteKey != 0)
-                _micMuteHotkeyId = _hotkeys.Register(_settings.MicMuteKey, () => Dispatcher.BeginInvoke(() =>
-                {
-                    MicMuteToggle.IsChecked = !(MicMuteToggle.IsChecked == true);
-                    if (_coordinator is not null) _coordinator.MicMuted = MicMuteToggle.IsChecked == true;
-                }));
-            if (_settings.SpeakerMuteKey != 0)
-                _speakerMuteHotkeyId = _hotkeys.Register(_settings.SpeakerMuteKey, () => Dispatcher.BeginInvoke(() =>
-                {
-                    SpeakerMuteToggle.IsChecked = !(SpeakerMuteToggle.IsChecked == true);
-                    if (_coordinator is not null) _coordinator.SpeakerMuted = SpeakerMuteToggle.IsChecked == true;
-                }));
-        }
-        catch (InvalidOperationException ex)
-        {
-            Log(ex.Message);
-        }
+        MicMuteToggle.Content = Loc.Get(micMuted ? "MicMuted" : "MicOn");
+        SpeakerMuteToggle.Content = Loc.Get(speakerMuted ? "SpeakerMuted" : "SpeakerOn");
+        MicMutedBadge.Visibility = micMuted ? Visibility.Visible : Visibility.Collapsed;
+        SpeakerMutedBadge.Visibility = speakerMuted ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void UpdateBindButtonLabels()
-    {
-        PttBindButton.Content = DescribeKey(_settings.PttKey);
-        MicMuteBindButton.Content = DescribeKey(_settings.MicMuteKey);
-        SpeakerMuteBindButton.Content = DescribeKey(_settings.SpeakerMuteKey);
-    }
-
-    private static string DescribeKey(int vKey) =>
-        vKey == 0 ? "(nicht gebunden)" : KeyInterop.KeyFromVirtualKey(vKey).ToString();
-
-    private void Log(string message) => LogListBox.Items.Insert(0, $"{DateTime.Now:HH:mm:ss}  {message}");
+    private void Log(string message) => _logEntries.Insert(0, $"{DateTime.Now:HH:mm:ss}  {message}");
 }

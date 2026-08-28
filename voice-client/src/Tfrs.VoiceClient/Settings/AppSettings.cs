@@ -21,7 +21,7 @@ internal sealed class AppSettings
     public float MicVolume { get; set; } = 1.0f;
     public float SpeakerVolume { get; set; } = 1.0f;
     public TransmitMode TransmitMode { get; set; } = TransmitMode.VoiceActivation;
-    public float VadThreshold { get; set; } = 0.02f;
+    public float VadThreshold { get; set; } = 0.01f;
 
     /// <summary>Win32 virtual-key codes; 0 = unbound.</summary>
     public int PttKey { get; set; }

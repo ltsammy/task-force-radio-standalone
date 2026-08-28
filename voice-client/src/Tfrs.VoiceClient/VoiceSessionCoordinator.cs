@@ -37,6 +37,8 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     public event Action<bool>? TransmittingChanged;
     public event Action<float>? MicLevelMeasured;
     public event Action<float>? SpeakerLevelMeasured;
+    public event Action? MicPersistentSilence;
+    public event Action? MicDeviceMuted;
     public event Action<bool>? ExtensionConnectionChanged;
 
     /// <summary>Total clients currently on the voice server, including this one. No names/roster
@@ -63,6 +65,8 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
 
         _transmit.TransmittingChanged += t => { _isTransmitting = t; TransmittingChanged?.Invoke(t); };
         _transmit.LevelMeasured += l => MicLevelMeasured?.Invoke(l);
+        _transmit.PersistentSilenceDetected += () => MicPersistentSilence?.Invoke();
+        _micCapture.DeviceMuted += () => MicDeviceMuted?.Invoke();
         _playback.LevelMeasured += l => SpeakerLevelMeasured?.Invoke(l);
 
         _bridge.UnitsReceived += OnUnitsReceived;
@@ -80,25 +84,25 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     public TransmitMode TransmitMode
     {
         get => _transmit.Mode;
-        set { _transmit.Mode = value; Settings.TransmitMode = value; }
+        set { _transmit.Mode = value; Settings.TransmitMode = value; Settings.Save(); }
     }
 
     public float MicVolume
     {
         get => _transmit.MicGain;
-        set { _transmit.MicGain = value; Settings.MicVolume = value; }
+        set { _transmit.MicGain = value; Settings.MicVolume = value; Settings.Save(); }
     }
 
     public float SpeakerVolume
     {
         get => _playback.MasterVolume;
-        set { _playback.MasterVolume = value; Settings.SpeakerVolume = value; }
+        set { _playback.MasterVolume = value; Settings.SpeakerVolume = value; Settings.Save(); }
     }
 
     public float VadThreshold
     {
         get => _transmit.VadThreshold;
-        set { _transmit.VadThreshold = value; Settings.VadThreshold = value; }
+        set { _transmit.VadThreshold = value; Settings.VadThreshold = value; Settings.Save(); }
     }
 
     public void SetPttHeld(bool held) => _transmit.PttHeld = held;

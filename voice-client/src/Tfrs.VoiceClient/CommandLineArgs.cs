@@ -2,11 +2,11 @@ namespace Tfrs.VoiceClient;
 
 /// <summary>Startparameter, damit ein externer Launcher (z. B. der C#-Strikelauncher) den Client
 /// direkt mit Server-IP/Port/Passwort starten kann, ohne dass der Nutzer sie eintippen muss.</summary>
-internal sealed record CommandLineArgs(string? Host, int? Port, string? Password, string? Uid, bool AutoConnect)
+internal sealed record CommandLineArgs(string? Host, int? Port, string? Password, string? Uid, string? Language, bool AutoConnect)
 {
     public static CommandLineArgs Parse(string[] args)
     {
-        string? host = null, password = null, uid = null;
+        string? host = null, password = null, uid = null, language = null;
         int? port = null;
         bool autoConnect = false;
 
@@ -32,6 +32,11 @@ internal sealed record CommandLineArgs(string? Host, int? Port, string? Password
                 case "uid":
                     if (i + 1 < args.Length) uid = args[++i];
                     break;
+                // UI language: "en" (default) or "de".
+                case "lang":
+                case "language":
+                    if (i + 1 < args.Length) language = args[++i];
+                    break;
                 case "autoconnect":
                     autoConnect = true;
                     break;
@@ -39,6 +44,6 @@ internal sealed record CommandLineArgs(string? Host, int? Port, string? Password
         }
 
         if (host is not null) autoConnect = true;
-        return new CommandLineArgs(host, port, password, uid, autoConnect);
+        return new CommandLineArgs(host, port, password, uid, language, autoConnect);
     }
 }

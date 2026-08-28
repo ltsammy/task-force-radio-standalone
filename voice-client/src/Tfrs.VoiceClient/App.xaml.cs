@@ -1,6 +1,6 @@
 using System.IO;
 using System.Windows;
-using System.Windows.Threading;
+using Tfrs.VoiceClient.Localization;
 using Tfrs.VoiceClient.Settings;
 
 namespace Tfrs.VoiceClient;
@@ -31,6 +31,8 @@ public partial class App : Application
 
         var settings = AppSettings.Load();
         var cliArgs = CommandLineArgs.Parse(e.Args);
+
+        Loc.Language = cliArgs.Language?.Trim().ToLowerInvariant() == "de" ? AppLanguage.De : AppLanguage.En;
 
         var window = new MainWindow(settings, cliArgs);
         MainWindow = window;

@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using Tfrs.VoiceClient.Localization;
 
 namespace Tfrs.VoiceClient.Networking;
 
@@ -58,12 +59,12 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            ConnectFailed?.Invoke($"DNS-Auflösung fehlgeschlagen: {ex.Message}");
+            ConnectFailed?.Invoke(Loc.Format("DnsFailed", ex.Message));
             return false;
         }
         if (addresses.Length == 0)
         {
-            ConnectFailed?.Invoke("Host konnte nicht aufgelöst werden.");
+            ConnectFailed?.Invoke(Loc.Get("HostNotResolved"));
             return false;
         }
 
@@ -98,7 +99,7 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                ConnectFailed?.Invoke($"Senden fehlgeschlagen: {ex.Message}");
+                ConnectFailed?.Invoke(Loc.Format("SendFailed", ex.Message));
                 break;
             }
 
@@ -121,7 +122,7 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
             // timeout — loop and retry
         }
 
-        ConnectFailed?.Invoke("Server antwortet nicht (Timeout).");
+        ConnectFailed?.Invoke(Loc.Get("ServerTimeout"));
         await TeardownAsync(notify: false);
         return false;
     }
@@ -319,10 +320,10 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
 
     private static string DescribeReject(ConnectRejectReason reason) => reason switch
     {
-        ConnectRejectReason.BadPassword => "Falsches Passwort.",
-        ConnectRejectReason.ServerFull => "Server ist voll.",
-        ConnectRejectReason.VersionMismatch => "Protokollversion passt nicht zum Server.",
-        _ => "Verbindung vom Server abgelehnt.",
+        ConnectRejectReason.BadPassword => Loc.Get("BadPassword"),
+        ConnectRejectReason.ServerFull => Loc.Get("ServerFull"),
+        ConnectRejectReason.VersionMismatch => Loc.Get("VersionMismatch"),
+        _ => Loc.Get("ConnectionRejected"),
     };
 
     private async Task TeardownAsync(bool notify, DisconnectCause cause = DisconnectCause.ConnectionLost)
