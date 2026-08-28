@@ -27,4 +27,15 @@ Set-Location $PSScriptRoot
 & "$PSScriptRoot\fetch-extension-dlls.ps1"
 
 Write-Host "Running hemtt publish (needs Steam running and logged in)..."
-hemtt publish
+
+# See build-local.ps1 for why: hemtt's own non-fatal stderr lint output can otherwise be turned
+# into a terminating error under $ErrorActionPreference = "Stop", aborting mid-publish.
+$previousEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& hemtt publish
+$hemttExitCode = $LASTEXITCODE
+$ErrorActionPreference = $previousEap
+
+if ($hemttExitCode -ne 0) {
+    throw "hemtt publish failed with exit code $hemttExitCode"
+}
