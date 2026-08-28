@@ -58,7 +58,11 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
 
         _network.Connected += () => { ConnectionStateChanged?.Invoke(true); PushConnectedCount(); };
         _network.ConnectFailed += msg => ConnectError?.Invoke(msg);
-        _network.Disconnected += _ => { ConnectionStateChanged?.Invoke(false); ConnectedCountChanged?.Invoke(0); };
+        // Fires for BOTH a user-initiated disconnect and one the network layer detected on its own
+        // (server timeout/crash — see VoiceNetworkClient.WatchdogLoopAsync) — either way, local
+        // state (mic, playback devices, per-session sources, roster) must be torn down the same
+        // way, or a reconnect can inherit stale RemoteVoiceSource objects/state from before.
+        _network.Disconnected += cause => { ConnectionStateChanged?.Invoke(false); _ = TeardownLocalStateAsync(); };
         _network.VoiceFrameReceived += OnVoiceFrameReceived;
         _network.RemoteJoined += OnRemoteJoined;
         _network.RemoteLeft += OnRemoteLeft;
@@ -165,12 +169,25 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
 
     public async Task DisconnectAsync()
     {
+        // _network.DisconnectAsync() also fires the Disconnected event (see the constructor
+        // wiring), which independently kicks off TeardownLocalStateAsync — a harmless redundant
+        // run (every step it does is idempotent). Awaiting it explicitly here too is what actually
+        // matters: it guarantees mic/playback are fully stopped and sources cleared BEFORE this
+        // method returns, so an immediate reconnect right after can't race a still-in-progress
+        // teardown (that race is what used to leave the mic not actually (re)capturing after a
+        // quick disconnect/reconnect).
+        await _network.DisconnectAsync();
+        await TeardownLocalStateAsync();
+    }
+
+    private async Task TeardownLocalStateAsync()
+    {
         await _audioThread.InvokeAsync(() =>
         {
             _micCapture.Stop();
             _playback.Stop();
         });
-        await _network.DisconnectAsync();
+        _playback.RemoveAllSources();
         lock (_rosterLock)
         {
             _sessionToUid.Clear();

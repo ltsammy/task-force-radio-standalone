@@ -24,14 +24,21 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
     private static readonly TimeSpan ConnectRetryTimeout = TimeSpan.FromSeconds(1.5);
     private static readonly TimeSpan PingInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan RosterRefreshInterval = TimeSpan.FromSeconds(20);
+    // 3x the ping interval: tolerates a couple of dropped UDP pings without a false positive,
+    // while still catching a genuinely dead/unreachable server (process killed, port closed) in
+    // well under the server's own 20s default session timeout. UDP gives no other signal that the
+    // peer is gone -- without this, a dead server just looks identical to "connected, silent".
+    private static readonly TimeSpan ServerTimeout = TimeSpan.FromSeconds(15);
 
     private UdpClient? _udp;
     private CancellationTokenSource? _cts;
     private Task? _receiveLoopTask;
     private Task? _pingLoopTask;
+    private Task? _watchdogTask;
     private TaskCompletionSource<(bool accepted, ConnectRejectReason reason)>? _pendingConnect;
     private ushort _voiceSequence;
     private readonly Stopwatch _clock = new();
+    private DateTime _lastServerActivityUtc;
 
     public bool IsConnected { get; private set; }
     public uint SessionId { get; private set; }
@@ -122,7 +129,9 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
                 if (accepted)
                 {
                     IsConnected = true;
+                    _lastServerActivityUtc = DateTime.UtcNow;
                     _pingLoopTask = Task.Run(() => PingLoopAsync(_cts.Token));
+                    _watchdogTask = Task.Run(() => WatchdogLoopAsync(_cts.Token));
                     Connected?.Invoke();
                     return true;
                 }
@@ -229,6 +238,7 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
     private void HandlePacket(byte[] data)
     {
         if (data.Length < 1) return;
+        _lastServerActivityUtc = DateTime.UtcNow; // any datagram from the server counts as proof of life
         var type = (PacketType)data[0];
         var reader = new PacketReader(data.AsSpan(1));
 
@@ -305,6 +315,32 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
         }
     }
 
+    /// <summary>UDP gives no notification when the remote end disappears (process killed, box
+    /// rebooted, firewall change) -- without this, a dead server looks identical to "connected,
+    /// nobody's talking" forever: the client just keeps sending pings and mic frames into the
+    /// void. Declares the connection lost if nothing at all has arrived from the server (Pong,
+    /// VoiceDown, ClientJoined/Left -- anything) for ServerTimeout.</summary>
+    private async Task WatchdogLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            if (DateTime.UtcNow - _lastServerActivityUtc > ServerTimeout)
+            {
+                _ = TeardownAsync(notify: true, cause: DisconnectCause.ConnectionLost);
+                break;
+            }
+        }
+    }
+
     private static byte[] BuildPingPacket(uint timestampMs)
     {
         Span<byte> buf = stackalloc byte[5];
@@ -350,6 +386,11 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
         _cts?.Cancel();
         if (_receiveLoopTask is not null) await SafeAwaitAsync(_receiveLoopTask);
         if (_pingLoopTask is not null) await SafeAwaitAsync(_pingLoopTask);
+        // Not awaited when the watchdog itself is the caller (it fires this fire-and-forget then
+        // immediately breaks out of its own loop) -- awaiting our own currently-running task here
+        // would just wait on a task that's already about to complete, not deadlock, but there's
+        // nothing to gain by delaying teardown on it either way.
+        if (_watchdogTask is not null) await SafeAwaitAsync(_watchdogTask);
 
         _udp?.Dispose();
         _udp = null;
@@ -357,6 +398,7 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
         _cts = null;
         _receiveLoopTask = null;
         _pingLoopTask = null;
+        _watchdogTask = null;
 
         if (notify && wasConnected)
             Disconnected?.Invoke(cause);

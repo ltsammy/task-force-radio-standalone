@@ -101,6 +101,19 @@ internal sealed class PlaybackEngine : IDisposable
             _mixer.RemoveMixerInput(source);
     }
 
+    /// <summary>Must be called on every disconnect (manual or connection-loss). Session IDs are
+    /// server-assigned and reused across a server restart (or just start over from 1 again), and
+    /// this dictionary is otherwise never cleared -- without this, reconnecting to a restarted
+    /// server can hand out a session ID that collides with a leftover source here, silently
+    /// reusing its stale state (including one created while DebugForceAudible was on) instead of
+    /// a fresh, correctly-silent one.</summary>
+    public void RemoveAllSources()
+    {
+        foreach (var source in _sources.Values)
+            _mixer.RemoveMixerInput(source);
+        _sources.Clear();
+    }
+
     public void Dispose()
     {
         Stop();

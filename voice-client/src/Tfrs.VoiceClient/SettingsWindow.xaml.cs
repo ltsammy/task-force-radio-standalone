@@ -24,6 +24,18 @@ public partial class SettingsWindow : Window
     private const long LevelMeterThrottleMs = 50;
     private long _lastMicLevelUpdateTicks;
 
+    // VadThresholdSlider is deliberately inverted (right = more sensitive): the underlying value
+    // is a raw RMS trigger threshold, where LOWER means the mic activates more easily. Presenting
+    // that directly as "Sensitivity" had every realistic value (0.005-0.05) sitting in the bottom
+    // ~25% of a 0-0.2 track, which read as "the slider is stuck on the far left no matter what I
+    // do" -- both the range and the direction were fighting the label. Must match the XAML
+    // Minimum/Maximum on VadThresholdSlider exactly.
+    private const float VadSliderMin = 0.001f;
+    private const float VadSliderMax = 0.05f;
+
+    private static float ThresholdToSlider(float threshold) => VadSliderMax + VadSliderMin - threshold;
+    private static float SliderToThreshold(double sliderValue) => VadSliderMax + VadSliderMin - (float)sliderValue;
+
     internal SettingsWindow(AppSettings settings, VoiceSessionCoordinator coordinator,
         ObservableCollection<string> logEntries, Action onHotkeysChanged)
     {
@@ -57,7 +69,7 @@ public partial class SettingsWindow : Window
         PopulateDevices();
         MicVolumeSlider.Value = _settings.MicVolume;
         SpeakerVolumeSlider.Value = _settings.SpeakerVolume;
-        VadThresholdSlider.Value = _settings.VadThreshold;
+        VadThresholdSlider.Value = ThresholdToSlider(_settings.VadThreshold);
         SetModeRadio(_settings.TransmitMode);
         UpdateBindButtonLabels();
     }
@@ -112,7 +124,7 @@ public partial class SettingsWindow : Window
         _coordinator.SpeakerVolume = (float)e.NewValue;
 
     private void VadThresholdSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) =>
-        _coordinator.VadThreshold = (float)e.NewValue;
+        _coordinator.VadThreshold = SliderToThreshold(e.NewValue);
 
     private void SetModeRadio(TransmitMode mode)
     {

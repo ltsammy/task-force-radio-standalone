@@ -60,7 +60,7 @@
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <Label Content="{loc:Loc VadSensitivityLabel}" Grid.Column="0" />
-                    <Slider x:Name="VadThresholdSlider" Grid.Column="1" Minimum="0.001" Maximum="0.2" Margin="6,4" ValueChanged="VadThresholdSlider_ValueChanged" />
+                    <Slider x:Name="VadThresholdSlider" Grid.Column="1" Minimum="0.001" Maximum="0.05" Margin="6,4" ValueChanged="VadThresholdSlider_ValueChanged" />
                 </Grid>
                 <!-- Level meter right next to the threshold it's being compared against, so you
                      can actually see where your voice sits while dragging the slider. -->
