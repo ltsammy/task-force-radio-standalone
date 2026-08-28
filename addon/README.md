@@ -112,16 +112,35 @@ behavior change:
   message/action-ID — deliberately **not changed**, since fixing that would be a content/behavior
   decision outside a build-compatibility pass, not just a syntax one.
 
-**One remaining item, and the whole reason PBO building lives locally instead of in CI:**
-`addons/static_radios/functions/fnc_zeusAttributes.sqf` `#include`s BI's own
-`\a3\ui_f_curator\UI\Displays\RscDisplayAttributes.sqf` (the base Zeus attribute-display UI class
-it extends) — unlike `dikCodes.h`, this is a large, complex BI-authored UI class body, not a small
-constant table, so it wasn't vendored. Per HEMTT's
-[P-Drive documentation](https://hemtt.dev/configuration/p-drive/), this resolves automatically on
-a machine with an actual Arma 3 installation (falls back to extracting the file from the game
-install if no P-Drive is mounted) — which is exactly why `build-local.ps1`/`publish-local.ps1`
-exist: run on a machine with Arma 3 installed, this isn't an issue at all. GitHub-hosted runners
-have no Arma 3 install, so `.github/workflows/addon.yml` only builds the extension DLLs and never
-attempts a PBO build. Making PBO building CI-possible would need either a P-Drive-equivalent CI
-setup (e.g. `arma-actions/arma3-tools`, which needs access to BI's Arma 3 Tools depot) or someone
-confirming it's safe to vendor a minimal stand-in for this one BI file — not done here.
+**`addons/static_radios/functions/fnc_zeusAttributes.sqf` — temporarily disabled.** Its only
+content was `#include "\a3\ui_f_curator\UI\Displays\RscDisplayAttributes.sqf"` (BI's own Zeus
+attribute-display UI class, which `CfgVehicles.hpp`'s `RscDisplayAttributesModuleTFARStaticRadio`
+extends). Per HEMTT's [P-Drive documentation](https://hemtt.dev/configuration/p-drive/), this
+should resolve automatically on a machine with Arma 3 installed (on-demand extraction straight
+from the game's own PBOs, no P-Drive needed) — this is exactly why `build-local.ps1`/
+`publish-local.ps1` exist, and why `.github/workflows/addon.yml` only builds the extension DLLs
+(GitHub-hosted runners have no Arma 3 install, so a PBO build could never succeed there). In
+practice, on the machine this was built on, HEMTT's on-demand P-Drive detection didn't pick up the
+local Arma 3 install for a reason not yet root-caused (Arma 3 + Arma 3 Tools were both present and
+correctly registered in Steam's library files — `hemtt build`'s separate `.p3d` binarization step
+found and used Arma 3 Tools fine, so this looks specific to the P-Drive/on-demand-PBO-read path).
+
+Rather than block a working test build on that investigation, the function was replaced with a
+no-op respecting its calling convention (`params ["", "", ""];`, called as
+`["onLoad"|"onUnload", _this, "RscDisplayAttributesModuleTFARStaticRadio"]` from the Zeus module).
+Note this was very likely **already non-functional** before this change regardless: a raw
+`#include` of a *config*-shaped file (a `class RscDisplayAttributes {...}` body) as the entire
+body of a *callable SQF function* isn't valid runtime SQF to begin with — so this probably wasn't
+a working feature in this fork even before HEMTT started enforcing it strictly. Re-enabling it
+(once the P-Drive detection issue is understood, or by vendoring the file after confirming that's
+acceptable) means writing an actual implementation, not just restoring the old content.
+
+Separately, `addons/core/stringtable.xml` and `addons/external_intercom/stringtable.xml` had
+`<Project ID="Arma3">` where every other addon's stringtable uses `<Project name="TFAR">` — HEMTT
+requires the `name` attribute; BI's own tooling apparently didn't care. Fixed to match the other
+5 addons (pure metadata, no key/translation content changed).
+
+With both of those fixed, `hemtt build`/`release`/`publish` all complete successfully end-to-end —
+verified with a real local build producing signed PBOs (`releases/tfar-latest.zip`) matching the
+original's `@task_force_radio/` layout exactly (7 PBOs + `.bisign` files, `keys/*.bikey`, both
+extension DLLs, `mod.cpp`, logos).
