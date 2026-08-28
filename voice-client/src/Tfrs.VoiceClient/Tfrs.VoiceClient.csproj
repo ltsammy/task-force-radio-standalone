@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Tfrs.VoiceClient</RootNamespace>
+    <AssemblyName>TfrsVoiceClient</AssemblyName>
+    <!-- No InvariantGlobalization here (unlike the voice-server): WPF's layout/binding engine
+         needs real culture data (XmlLanguage.GetSpecificCulture etc.) and throws at startup
+         without it. -->
+    <!-- Plain, well-known, source-available dependencies (NAudio, Concentus) instead of hand-rolled
+         native interop / bundled unsigned DLLs — keeps the binary boring, which is exactly what
+         AV/SmartScreen heuristics want to see. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Concentus" Version="2.2.2" />
+  </ItemGroup>
+
+</Project>

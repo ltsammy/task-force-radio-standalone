@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Tfrs.VoiceServer</RootNamespace>
+    <AssemblyName>tfrs-voice-server</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Workstation+concurrent GC over Server GC: a per-core heap (Server GC's usual win on
+         throughput) costs memory we don't need for a stateless packet relay — low footprint
+         matters more here than shaving GC pause times under heavy multi-core load. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <PublishAot>true</PublishAot>
+    <StackTraceSupport>false</StackTraceSupport>
+  </PropertyGroup>
+
+</Project>

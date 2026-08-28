@@ -1,0 +1,7 @@
+build/
+out/
+CMakeCache.txt
+CMakeFiles/
+*.vcxproj
+*.vcxproj.filters
+*.sln

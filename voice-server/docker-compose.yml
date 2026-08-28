@@ -1,0 +1,12 @@
+services:
+  voice-server:
+    build: .
+    image: tfrs-voice-server:local
+    restart: unless-stopped
+    ports:
+      - "9987:9987/udp"
+    environment:
+      TFRS_PORT: "9987"
+      TFRS_PASSWORD: "changeme"
+      TFRS_MAX_CLIENTS: "300"
+      TFRS_TIMEOUT_SECONDS: "20"

@@ -1,0 +1,29 @@
+# Reference clone of the original TFAR repo — not part of this project's history
+/old/
+
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# C++ (Arma extension / build output)
+x64/
+Debug/
+Release/
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.dll
+!voice-client/**/*.dll
+!voice-server/**/*.dll
+
+# Arma addon build output
+*.pbo
+addon/release/
+addon/@*/
+
+# Misc
+*.log
+.env
