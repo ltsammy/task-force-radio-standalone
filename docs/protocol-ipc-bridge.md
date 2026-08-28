@@ -22,9 +22,17 @@ shared memory with a binary format.
 {"t":"units","u":[
   {"uid":"76561198000000001","gain":0.82,"az":1.047,"muted":false,"fx":"sw","err":0.15},
   {"uid":"76561198000000002","gain":0.10,"az":-2.5,"muted":false,"fx":"direct","err":0.0}
-]}
+],"myUid":"76561198000000003"}
 ```
 
+- `myUid`: the local player's own real Steam UID (`getPlayerUID`), once known (see the `UID`
+  command in [`protocol-extension-legacy.md`](protocol-extension-legacy.md)) — empty string until
+  then. The voice client uses this as its own relay identity, overriding whatever it started with
+  (a CLI `--uid`, a stale persisted one, or a machine-name placeholder) the moment it changes —
+  requiring a human to correctly type/pass their own Steam64 ID is fragile in practice (two
+  different people forgot to on the same test session) and the addon always knows it authoritatively
+  anyway. If this causes an identity change while already connected to the relay under a different
+  UID, the client disconnects and reconnects under the corrected one.
 - `fx`: which effect chain the client should apply — `"direct"` (direct speech, no radio
   distortion), `"sw"`, `"lr"`, `"airborne"`, `"dd"` (diver), `"phone"`, `"speaker"` (ground/vehicle
   loudspeaker), `"intercom"`. Determines the filter chain from

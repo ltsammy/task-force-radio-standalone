@@ -22,6 +22,14 @@ public partial class MainWindow : Window
     private long _lastMicLevelUpdateTicks;
     private long _lastSpeakerLevelUpdateTicks;
 
+    // Guards against AddonUidUpdated firing while a ConnectAsync handshake (up to ~7.5s across
+    // retries) is already in flight: the in-flight attempt already read Settings.LocalUid at its
+    // own start and can't be redirected mid-flight, so instead of racing a second concurrent
+    // ConnectAsync against it (VoiceNetworkClient isn't safe against that), the correction is
+    // deferred and replayed once the in-flight attempt finishes.
+    private bool _connecting;
+    private bool _identityChangedDuringConnect;
+
     /// <summary>Called from a background audio thread — deliberately not synchronized (a torn
     /// read/write here just means one throttle window is occasionally a few ms off, which is
     /// irrelevant for a meter update rate; not worth a lock on a hot audio-callback path).</summary>
@@ -95,6 +103,7 @@ public partial class MainWindow : Window
             ExtensionStatusText.Text = Loc.Get(connected ? "ExtensionConnected" : "ExtensionNotConnected"));
         _coordinator.ConnectedCountChanged += count => Dispatcher.BeginInvoke(() =>
             RosterCountText.Text = count > 0 ? Loc.Format("ConnectedCount", count) : "");
+        _coordinator.AddonUidUpdated += () => Dispatcher.BeginInvoke(OnAddonUidUpdated);
 
         _pttPoller.HeldChanged += held => _coordinator?.SetPttHeld(held);
         _pttPoller.SetKey(_settings.PttKey);
@@ -169,23 +178,59 @@ public partial class MainWindow : Window
             return;
         }
 
+        _connecting = true;
         ConnectButton.IsEnabled = false;
-        // Purely cosmetic: the relay broadcasts this as this client's name in ClientJoined, shown
-        // in server logs. The Arma extension no longer depends on it — it learns each unit's real
-        // relay UID directly from Arma (getPlayerUID) over the pipe, not by matching names (see
-        // docs/protocol-extension-legacy.md's "UID" command).
-        string displayName = string.IsNullOrWhiteSpace(_cliArgs.Name) ? "TFRS" : _cliArgs.Name;
-        bool ok = await _coordinator.ConnectAsync(HostTextBox.Text.Trim(), port, PasswordBox.Password, displayName);
-        ConnectButton.IsEnabled = !ok;
-        if (ok)
+        try
         {
-            Log(Loc.Format("ConnectedTo", HostTextBox.Text, port));
-            if (_coordinator.ServerDebugForceAudible)
+            // Purely cosmetic: the relay broadcasts this as this client's name in ClientJoined,
+            // shown in server logs. The Arma extension no longer depends on it — it learns each
+            // unit's real relay UID directly from Arma (getPlayerUID) over the pipe, not by
+            // matching names (see docs/protocol-extension-legacy.md's "UID" command).
+            string displayName = string.IsNullOrWhiteSpace(_cliArgs.Name) ? "TFRS" : _cliArgs.Name;
+            bool ok = await _coordinator.ConnectAsync(HostTextBox.Text.Trim(), port, PasswordBox.Password, displayName);
+            ConnectButton.IsEnabled = !ok;
+            if (ok)
             {
-                Log("!!! SERVER DEBUG MODE: hearing everyone at full volume, ignoring the Arma addon's distance/gain — testing only.");
-                StatusText.Text += "  [DEBUG]";
+                Log(Loc.Format("ConnectedTo", HostTextBox.Text, port));
+                if (_coordinator.ServerDebugForceAudible)
+                {
+                    Log("!!! SERVER DEBUG MODE: hearing everyone at full volume, ignoring the Arma addon's distance/gain — testing only.");
+                    StatusText.Text += "  [DEBUG]";
+                }
             }
         }
+        finally
+        {
+            _connecting = false;
+            if (_identityChangedDuringConnect)
+            {
+                _identityChangedDuringConnect = false;
+                await ReconnectWithCurrentIdentityAsync();
+            }
+        }
+    }
+
+    /// <summary>The Arma extension reported the local player's real UID for the first time, or a
+    /// different one than we're currently using (see VoiceSessionCoordinator.AddonUidUpdated) —
+    /// it must win over whatever identity we started with (fallback or a stale CLI/persisted
+    /// value). If a connect attempt is already in flight, defer until it finishes rather than
+    /// racing a second one against it.</summary>
+    private async void OnAddonUidUpdated()
+    {
+        if (_connecting) { _identityChangedDuringConnect = true; return; }
+        await ReconnectWithCurrentIdentityAsync();
+    }
+
+    private async Task ReconnectWithCurrentIdentityAsync()
+    {
+        if (_coordinator is null) return;
+        if (_coordinator.IsConnected)
+        {
+            await _coordinator.DisconnectAsync();
+            Log(Loc.Get("Disconnected"));
+        }
+        if (!string.IsNullOrWhiteSpace(HostTextBox.Text))
+            await ConnectAsync();
     }
 
     private async void DisconnectButton_Click(object sender, RoutedEventArgs e)

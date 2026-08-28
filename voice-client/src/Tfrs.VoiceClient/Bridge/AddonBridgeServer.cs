@@ -23,6 +23,10 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
 
     public event Action<IReadOnlyList<UnitEntry>>? UnitsReceived;
     public event Action<bool?>? LocalOverrideReceived;
+    /// <summary>The local player's real Steam UID (getPlayerUID), reported by the extension once
+    /// it knows it — see the "myUid" field on the "units" message in docs/protocol-ipc-bridge.md.
+    /// Only fires with a non-empty value.</summary>
+    public event Action<string>? LocalUidReceived;
     public event Action? ExtensionConnected;
     public event Action? ExtensionDisconnected;
 
@@ -126,6 +130,12 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
                 list.Add(new UnitEntry(uid, gain, az, muted, fx, err));
             }
         }
+        if (root.TryGetProperty("myUid", out var myUidProp))
+        {
+            string myUid = myUidProp.GetString() ?? "";
+            if (myUid.Length > 0) LocalUidReceived?.Invoke(myUid);
+        }
+
         UnitsReceived?.Invoke(list);
     }
 

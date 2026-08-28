@@ -45,6 +45,16 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     /// UI by design — just a headcount (see project notes: no display names, no "who's talking").</summary>
     public event Action<int>? ConnectedCountChanged;
 
+    /// <summary>Fires whenever the Arma extension reports (or corrects) the local player's real
+    /// UID (see AddonBridgeServer.LocalUidReceived) and it differs from what Settings.LocalUid
+    /// already held — Settings.LocalUid has already been updated by the time this fires.
+    /// Requiring a player to manually type/pass their own Steam ID is exactly the fragile setup
+    /// that caused today's "some players just aren't heard" bug (see the relay log showing
+    /// MachineName:Username fallback UIDs) — the addon always knows this authoritatively via
+    /// getPlayerUID, so it should always win once available. MainWindow reacts to this by
+    /// (re)connecting under the corrected identity.</summary>
+    public event Action? AddonUidUpdated;
+
     public VoiceSessionCoordinator(AppSettings settings)
     {
         Settings = settings;
@@ -79,6 +89,7 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
 
         _bridge.UnitsReceived += OnUnitsReceived;
         _bridge.LocalOverrideReceived += v => _transmit.AddonTransmitOverride = v;
+        _bridge.LocalUidReceived += OnLocalUidReceived;
         _bridge.ExtensionConnected += () => ExtensionConnectionChanged?.Invoke(true);
         _bridge.ExtensionDisconnected += () => ExtensionConnectionChanged?.Invoke(false);
 
@@ -197,12 +208,26 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
         ConnectedCountChanged?.Invoke(0);
     }
 
-    /// <summary>Used only when no real Arma UID was supplied (Settings.LocalUid, normally set via
-    /// the `--uid` startparameter — see CommandLineArgs). Without a matching UID the bridge's
-    /// "units" messages from the extension can never resolve to this connection, so this is a
-    /// standalone-testing fallback, not a real deployment path.</summary>
+    /// <summary>Used only until the Arma extension reports the real UID on its own (see
+    /// OnLocalUidReceived) — e.g. the very first few seconds before a mission has loaded, or
+    /// standalone testing with no Arma running at all (the debug-force-audible flow). Never meant
+    /// to be a real deployment identity: two different machines/users can collide, which is
+    /// harmless as a placeholder but would silently misroute audio if it stuck around.</summary>
     private static string GetFallbackUid() =>
         Environment.MachineName + ":" + Environment.UserName;
+
+    /// <summary>The addon always knows the local player's real Steam UID authoritatively
+    /// (getPlayerUID) — once it reports one, it must win over whatever this connected with
+    /// before (a CLI --uid, a stale persisted Settings.LocalUid, or the machine-name fallback).
+    /// Requiring correct manual UID entry is exactly the fragile setup that silently broke voice
+    /// for two testers in practice (see the relay log showing MachineName:Username UIDs).</summary>
+    private void OnLocalUidReceived(string uid)
+    {
+        if (Settings.LocalUid == uid) return;
+        Settings.LocalUid = uid;
+        Settings.Save();
+        AddonUidUpdated?.Invoke();
+    }
 
     private void OnVoiceFrameReceived(uint senderSessionId, ushort sequence, bool isLast, byte[] opus)
     {

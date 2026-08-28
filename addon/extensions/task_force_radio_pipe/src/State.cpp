@@ -886,7 +886,21 @@ std::string State::buildUnitsMessage() {
         out += json::number(unit.err, 4);
         out += '}';
     }
-    out += "]}";
+
+    // Empty until the "UID" command (fnc_sendPlayerInfo.sqf, once per unit including the local
+    // player) has run for us -- deliberately NOT falling back to the nickname the way
+    // uidForLocked does for other units, so the voice client can tell "not known yet" apart from
+    // a real UID and keep waiting instead of connecting to the relay under the wrong identity.
+    std::string myUid;
+    if (!m_myNickname.empty()) {
+        std::unordered_map<std::string, std::string>::const_iterator it =
+            m_nameToUid.find(m_myNickname);
+        if (it != m_nameToUid.end()) myUid = it->second;
+    }
+
+    out += "],\"myUid\":";
+    out += json::quote(myUid);
+    out += '}';
     return out;
 }
 
