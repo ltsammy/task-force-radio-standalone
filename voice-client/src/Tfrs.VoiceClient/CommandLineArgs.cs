@@ -32,10 +32,9 @@ internal sealed record CommandLineArgs(string? Host, int? Port, string? Password
                 case "uid":
                     if (i + 1 < args.Length) uid = args[++i];
                     break;
-                // The player's Arma nickname (what `name player` returns in-game). Used as this
-                // client's relay display name so OTHER players' voice clients can resolve this
-                // UID back to the nickname the Arma addon's own "units" messages reference — see
-                // VoiceSessionCoordinator's roster handling and docs/protocol-ipc-bridge.md.
+                // Cosmetic only: shown as this client's name in relay/server logs. The Arma
+                // extension resolves nickname<->UID on its own via getPlayerUID (see the "UID"
+                // command in docs/protocol-extension-legacy.md), not from this.
                 case "name":
                 case "nickname":
                     if (i + 1 < args.Length) name = args[++i];
