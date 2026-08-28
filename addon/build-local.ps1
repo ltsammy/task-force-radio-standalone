@@ -29,10 +29,20 @@ Set-Location $PSScriptRoot
 
 & "$PSScriptRoot\fetch-extension-dlls.ps1"
 
-if ($Dev) {
-    Write-Host "Running hemtt build (fast, unsigned)..."
-    hemtt build
-} else {
-    Write-Host "Running hemtt release (signed, zipped into releases/)..."
-    hemtt release
+$hemttArgs = if ($Dev) { "build" } else { "release" }
+Write-Host "Running hemtt $hemttArgs..."
+
+# hemtt writes its own (non-fatal) lint diagnostics to stderr. Under $ErrorActionPreference =
+# "Stop", some PowerShell hosts turn any native-process stderr line into a terminating
+# NativeCommandError regardless of the process's actual exit code, aborting this script mid-build
+# on hemtt's own informational output. Drop to "Continue" for just this call and check the real
+# exit code ourselves instead.
+$previousEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+& hemtt $hemttArgs
+$hemttExitCode = $LASTEXITCODE
+$ErrorActionPreference = $previousEap
+
+if ($hemttExitCode -ne 0) {
+    throw "hemtt $hemttArgs failed with exit code $hemttExitCode"
 }

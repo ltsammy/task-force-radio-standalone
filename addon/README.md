@@ -112,28 +112,18 @@ behavior change:
   message/action-ID — deliberately **not changed**, since fixing that would be a content/behavior
   decision outside a build-compatibility pass, not just a syntax one.
 
-**`addons/static_radios/functions/fnc_zeusAttributes.sqf` — temporarily disabled.** Its only
-content was `#include "\a3\ui_f_curator\UI\Displays\RscDisplayAttributes.sqf"` (BI's own Zeus
+**`addons/static_radios/functions/fnc_zeusAttributes.sqf` — P-Drive include, resolved.** Its
+only content is `#include "\a3\ui_f_curator\UI\Displays\RscDisplayAttributes.sqf"` (BI's own Zeus
 attribute-display UI class, which `CfgVehicles.hpp`'s `RscDisplayAttributesModuleTFARStaticRadio`
-extends). Per HEMTT's [P-Drive documentation](https://hemtt.dev/configuration/p-drive/), this
-should resolve automatically on a machine with Arma 3 installed (on-demand extraction straight
-from the game's own PBOs, no P-Drive needed) — this is exactly why `build-local.ps1`/
+extends). This needs a P-Drive to resolve at build time, which is exactly why `build-local.ps1`/
 `publish-local.ps1` exist, and why `.github/workflows/addon.yml` only builds the extension DLLs
-(GitHub-hosted runners have no Arma 3 install, so a PBO build could never succeed there). In
-practice, on the machine this was built on, HEMTT's on-demand P-Drive detection didn't pick up the
-local Arma 3 install for a reason not yet root-caused (Arma 3 + Arma 3 Tools were both present and
-correctly registered in Steam's library files — `hemtt build`'s separate `.p3d` binarization step
-found and used Arma 3 Tools fine, so this looks specific to the P-Drive/on-demand-PBO-read path).
-
-Rather than block a working test build on that investigation, the function was replaced with a
-no-op respecting its calling convention (`params ["", "", ""];`, called as
-`["onLoad"|"onUnload", _this, "RscDisplayAttributesModuleTFARStaticRadio"]` from the Zeus module).
-Note this was very likely **already non-functional** before this change regardless: a raw
-`#include` of a *config*-shaped file (a `class RscDisplayAttributes {...}` body) as the entire
-body of a *callable SQF function* isn't valid runtime SQF to begin with — so this probably wasn't
-a working feature in this fork even before HEMTT started enforcing it strictly. Re-enabling it
-(once the P-Drive detection issue is understood, or by vendoring the file after confirming that's
-acceptable) means writing an actual implementation, not just restoring the old content.
+(GitHub-hosted runners have no P-Drive, so a PBO build could never succeed there). It was
+temporarily stubbed out early on because a P:\ drive wasn't set up yet on the build machine; once
+one was (`P:\a3\...`, the standard Arma 3 Tools layout), the build still failed with
+`error[PE12]: include not found` until `pdrive = "require"` was added under `[hemtt.build]` in
+`project.toml` — per HEMTT's [P-Drive documentation](https://hemtt.dev/configuration/p-drive.html),
+P-Drive include resolution isn't fully enabled by default even when `P:\` exists; it must be
+explicitly requested. With that set, `hemtt release` reports `P Drive at P:\a3` and builds clean.
 
 Separately, `addons/core/stringtable.xml` and `addons/external_intercom/stringtable.xml` had
 `<Project ID="Arma3">` where every other addon's stringtable uses `<Project name="TFAR">` — HEMTT

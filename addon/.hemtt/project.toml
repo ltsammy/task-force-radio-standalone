@@ -8,6 +8,15 @@ minor = 0
 patch = 0
 git_hash = 8
 
+[hemtt.build]
+# One BI include (Zeus's RscDisplayAttributes.sqf) needs the P-Drive to resolve. Without this,
+# HEMTT's P-Drive include lookup isn't fully enabled even when P:\a3\ exists locally — see
+# addon/README.md "Known HEMTT build findings".
+pdrive = "require"
+
+[hemtt.check]
+pdrive = "ignore"
+
 [lints.sqf]
 # format ["some string with no %1", extraArg] is harmless at runtime (SQF's format ignores unused
 # args) — downgraded to a warning rather than fixed, since the 4 flagged call sites look like they
