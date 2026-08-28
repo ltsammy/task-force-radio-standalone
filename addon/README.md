@@ -7,26 +7,32 @@ which replaces the TeamSpeak shared-memory bridge with a named pipe to the new v
 
 ## Building
 
-Two independent pieces need to be built and combined:
+Two independent pieces need to be built, **on two different machines**, and combined:
 
-1. **Extension DLLs** (C++, both architectures — Arma loads the matching one automatically):
+1. **Extension DLLs** (C++, both architectures — Arma loads the matching one automatically) —
+   built by **CI** (`.github/workflows/addon.yml`, needs only MSVC, which GitHub-hosted runners
+   have). To build locally instead:
    ```bash
    cd extensions/task_force_radio_pipe
    cmake -S . -B build/x64   -A x64   && cmake --build build/x64   --config Release
    cmake -S . -B build/win32 -A Win32 && cmake --build build/win32 --config Release
    ```
-   Copy the resulting `task_force_radio_pipe.dll` and `task_force_radio_pipe_x64.dll` into
-   `addon/` (the project root, next to `mod.cpp`) — `.hemtt/project.toml` picks them up from there.
 
-2. **PBOs**, via [HEMTT](https://hemtt.dev/) (matches the `arma3_serverside` project's tooling):
-   ```bash
-   hemtt build      # fast, unsigned — for local iteration
-   hemtt release     # signed, zipped into releases/ — for actual distribution
+2. **PBOs**, via [HEMTT](https://hemtt.dev/) (matches the `arma3_serverside` project's tooling) —
+   built **locally**, on a machine with Arma 3 installed (needed to resolve one BI include — see
+   "Known HEMTT build findings" below; GitHub-hosted runners don't have Arma 3, so this step can't
+   run in CI). [`build-local.ps1`](build-local.ps1) pulls the CI-built DLLs and runs `hemtt
+   release`/`build` with them in one step:
+   ```powershell
+   cd addon
+   ./build-local.ps1          # signed, zipped into releases/
+   ./build-local.ps1 -Dev     # fast, unsigned, for iteration
    ```
+   Prerequisite: `gh` CLI authenticated (`gh auth login`), `hemtt` on PATH.
 
-CI (`.github/workflows/addon.yml`) does both automatically: builds both extension
-architectures, drops them into the project root, then runs `hemtt build` on pull requests
-(validation only) or `hemtt release` on pushes to `main` (signed, zipped artifact).
+If you'd rather assemble the DLLs yourself (e.g. testing a local extension change before pushing),
+copy `task_force_radio_pipe.dll`/`task_force_radio_pipe_x64.dll` into `addon/` (next to `mod.cpp`)
+and run `hemtt build`/`release` directly — `build-local.ps1` only automates fetching them from CI.
 
 ## Signing
 
@@ -49,11 +55,10 @@ up).
 
 HEMTT has a built-in `hemtt publish` command — but it authenticates through the Steamworks client
 API, which **requires a running, logged-in local Steam client**. That makes it a one-person,
-run-it-on-your-own-machine command, not something a GitHub Actions runner can do.
-
-Publishing is therefore split across machines: CI builds the extension DLLs (needs MSVC), and
-[`publish-local.ps1`](publish-local.ps1) pulls those from the latest successful `addon` workflow
-run and then runs `hemtt publish` locally, which builds+signs+zips+uploads using them:
+run-it-on-your-own-machine command, not something a GitHub Actions runner can do — same reason PBO
+building itself is local-only (see "Building" above). [`publish-local.ps1`](publish-local.ps1)
+fetches the CI-built DLLs the same way `build-local.ps1` does, then runs `hemtt publish`, which
+builds+signs+zips+uploads using them:
 
 ```powershell
 cd addon
@@ -107,14 +112,16 @@ behavior change:
   message/action-ID — deliberately **not changed**, since fixing that would be a content/behavior
   decision outside a build-compatibility pass, not just a syntax one.
 
-**One remaining, unresolved item:** `addons/static_radios/functions/fnc_zeusAttributes.sqf`
-`#include`s BI's own `\a3\ui_f_curator\UI\Displays\RscDisplayAttributes.sqf` (the base Zeus
-attribute-display UI class it extends) — unlike `dikCodes.h`, this is a large, complex BI-authored
-UI class body, not a small constant table, so it wasn't vendored. Per HEMTT's
+**One remaining item, and the whole reason PBO building lives locally instead of in CI:**
+`addons/static_radios/functions/fnc_zeusAttributes.sqf` `#include`s BI's own
+`\a3\ui_f_curator\UI\Displays\RscDisplayAttributes.sqf` (the base Zeus attribute-display UI class
+it extends) — unlike `dikCodes.h`, this is a large, complex BI-authored UI class body, not a small
+constant table, so it wasn't vendored. Per HEMTT's
 [P-Drive documentation](https://hemtt.dev/configuration/p-drive/), this resolves automatically on
 a machine with an actual Arma 3 installation (falls back to extracting the file from the game
-install if no P-Drive is mounted) — so this likely won't be an issue running `hemtt check`/`build`
-locally on a machine with Arma 3 installed. It **will** currently fail in `.github/workflows/addon.yml`,
-since GitHub-hosted runners have no Arma 3 install. Fixing that needs either a P-Drive-equivalent
-CI setup (e.g. `arma-actions/arma3-tools`, which needs access to BI's Arma 3 Tools depot) or
-someone confirming it's safe to vendor a minimal stand-in for this one BI file — not done here.
+install if no P-Drive is mounted) — which is exactly why `build-local.ps1`/`publish-local.ps1`
+exist: run on a machine with Arma 3 installed, this isn't an issue at all. GitHub-hosted runners
+have no Arma 3 install, so `.github/workflows/addon.yml` only builds the extension DLLs and never
+attempts a PBO build. Making PBO building CI-possible would need either a P-Drive-equivalent CI
+setup (e.g. `arma-actions/arma3-tools`, which needs access to BI's Arma 3 Tools depot) or someone
+confirming it's safe to vendor a minimal stand-in for this one BI file — not done here.
