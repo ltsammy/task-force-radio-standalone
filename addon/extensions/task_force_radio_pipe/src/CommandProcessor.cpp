@@ -114,6 +114,14 @@ void CommandProcessor::processAsync(const std::string& command, const std::strin
         return;
     }
 
+    // Additive, not part of the legacy protocol (docs/protocol-extension-legacy.md) -- a new
+    // one-time-per-unit call from fnc_sendPlayerInfo.sqf carrying that unit's real getPlayerUID.
+    if (command == "UID") {
+        const std::vector<std::string> tokens = splitLimit(payload, '\t', 3);
+        if (tokens.size() >= 3) m_state.handleUid(tokens[1], tokens[2]);
+        return;
+    }
+
     if (command == "RELEASE_ALL_TANGENTS") {
         const std::vector<std::string> tokens = splitLimit(payload, '\t', 2);
         m_state.handleReleaseAllTangents(tokens.size() >= 2 ? tokens[1] : std::string());

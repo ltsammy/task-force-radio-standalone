@@ -40,8 +40,16 @@ if (_result != "OK") then {
     };
 };
 
-//#TODO this is a bad place to do it, why check every update... 
+//#TODO this is a bad place to do it, why check every update...
 if !(_player getVariable ["TFAR_killedEHAttached",false]) then {
     _player addEventHandler ["Killed", {_player call TFAR_fnc_sendPlayerKilled}];
     _player setVariable ["TFAR_killedEHAttached", true];
+
+    // One-time: tell the extension this unit's real getPlayerUID (see "UID" in
+    // docs/protocol-extension-legacy.md). Lets nickname<->relay-UID resolution come straight from
+    // Arma instead of matching display names, which aren't guaranteed unique.
+    private _steamUid = getPlayerUID _player;
+    if (_steamUid != "") then {
+        "task_force_radio_pipe" callExtension format ["UID	%1	%2~", _this select 2, _steamUid];
+    };
 };

@@ -50,6 +50,12 @@ internal sealed class PlaybackEngine : IDisposable
         set => _masterVolume.Volume = Math.Clamp(value, 0f, 2f);
     }
 
+    /// <summary>Set from the server's ConnectAccept flag (see ServerOptions.DebugForceAudible) —
+    /// never something this client decides for itself. When true, newly created sources start
+    /// audible instead of silent; VoiceSessionCoordinator additionally stops applying the Arma
+    /// extension's "units" gain so it can't undo this.</summary>
+    public bool DebugForceAudible { get; set; }
+
     public PlaybackEngine()
     {
         _mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(OpusFormat.SampleRate, 2))
@@ -81,6 +87,7 @@ internal sealed class PlaybackEngine : IDisposable
         _sources.GetOrAdd(sessionId, id =>
         {
             var source = new RemoteVoiceSource(id, uid);
+            if (DebugForceAudible) source.SetState(RemoteSourceState.DebugAudible);
             _mixer.AddMixerInput(source);
             return source;
         });

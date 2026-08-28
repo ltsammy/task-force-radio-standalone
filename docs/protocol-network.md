@@ -59,10 +59,18 @@ public, hostile networks.
 byte   packetType = 2
 uint32 sessionId       // server-assigned, unique for this connection
 uint16 maxClients
+byte   debugForceAudible // 0/1 -- see ServerOptions.DebugForceAudible; server-dictated only
 ```
 
 Immediately after, the server sends one `ClientJoined` packet per already-connected client (no
 bulk snapshot, to avoid MTU issues at 200-300 clients).
+
+`debugForceAudible`, when set, tells the client to play every remote source at full volume/no
+panning and ignore whatever the Arma extension's bridge otherwise computes (see
+`RemoteSourceState.DebugAudible` / `PlaybackEngine.DebugForceAudible` client-side) — a way to test
+raw mic-to-speaker transport independent of the addon. It is controlled only by the server's
+`TFRS_DEBUG_FORCE_AUDIBLE` env var; the client has no way to request or enable it itself (a
+client-side toggle would let a player hear others regardless of real in-game distance).
 
 ### 3 — ConnectReject (Server → Client)
 

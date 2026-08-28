@@ -2,11 +2,11 @@ namespace Tfrs.VoiceClient;
 
 /// <summary>Startparameter, damit ein externer Launcher (z. B. der C#-Strikelauncher) den Client
 /// direkt mit Server-IP/Port/Passwort starten kann, ohne dass der Nutzer sie eintippen muss.</summary>
-internal sealed record CommandLineArgs(string? Host, int? Port, string? Password, string? Uid, string? Language, bool AutoConnect)
+internal sealed record CommandLineArgs(string? Host, int? Port, string? Password, string? Uid, string? Name, string? Language, bool AutoConnect)
 {
     public static CommandLineArgs Parse(string[] args)
     {
-        string? host = null, password = null, uid = null, language = null;
+        string? host = null, password = null, uid = null, name = null, language = null;
         int? port = null;
         bool autoConnect = false;
 
@@ -32,6 +32,14 @@ internal sealed record CommandLineArgs(string? Host, int? Port, string? Password
                 case "uid":
                     if (i + 1 < args.Length) uid = args[++i];
                     break;
+                // The player's Arma nickname (what `name player` returns in-game). Used as this
+                // client's relay display name so OTHER players' voice clients can resolve this
+                // UID back to the nickname the Arma addon's own "units" messages reference — see
+                // VoiceSessionCoordinator's roster handling and docs/protocol-ipc-bridge.md.
+                case "name":
+                case "nickname":
+                    if (i + 1 < args.Length) name = args[++i];
+                    break;
                 // UI language: "en" (default) or "de".
                 case "lang":
                 case "language":
@@ -44,6 +52,6 @@ internal sealed record CommandLineArgs(string? Host, int? Port, string? Password
         }
 
         if (host is not null) autoConnect = true;
-        return new CommandLineArgs(host, port, password, uid, language, autoConnect);
+        return new CommandLineArgs(host, port, password, uid, name, language, autoConnect);
     }
 }

@@ -6,6 +6,8 @@ bin/
 obj/
 *.user
 .vs/
+publish/
+publish-linux/
 
 # C++ (Arma extension / build output)
 build/

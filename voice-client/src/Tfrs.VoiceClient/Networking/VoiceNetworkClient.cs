@@ -36,6 +36,18 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
     public bool IsConnected { get; private set; }
     public uint SessionId { get; private set; }
 
+    /// <summary>Server-dictated only (see ServerOptions.DebugForceAudible) — this client has no
+    /// way to request or enable it itself.</summary>
+    public bool ServerDebugForceAudible { get; private set; }
+
+    /// <summary>Fires synchronously from the receive loop the instant ConnectAccept is parsed —
+    /// deliberately NOT via the awaited ConnectAsync return, because that continuation is queued
+    /// (TaskCreationOptions.RunContinuationsAsynchronously) and can lose a race against the
+    /// ClientJoined packets the server sends immediately after ConnectAccept: a subscriber that
+    /// only reacted after ConnectAsync returned would still see sources created before it learned
+    /// the flag was on.</summary>
+    public event Action<bool>? DebugFlagReceived;
+
     public event Action? Connected;
     public event Action<string>? ConnectFailed;
     public event Action<DisconnectCause>? Disconnected;
@@ -226,6 +238,9 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
             {
                 uint sessionId = reader.ReadUInt32();
                 SessionId = sessionId;
+                if (reader.Remaining >= 2) reader.ReadUInt16(); // maxClients, informational only
+                ServerDebugForceAudible = reader.Remaining >= 1 && reader.ReadByte() != 0;
+                DebugFlagReceived?.Invoke(ServerDebugForceAudible);
                 _pendingConnect?.TrySetResult((true, default));
                 break;
             }

@@ -236,6 +236,14 @@ void State::handleKilled(const std::string& nickname) {
     }
 }
 
+void State::handleUid(const std::string& nickname, const std::string& uid) {
+    const std::string name = convertNickname(nickname);
+    if (name.empty() || uid.empty()) return;
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_nameToUid[name] = uid;
+}
+
 void State::handleReleaseAllTangents(const std::string& nickname) {
     const std::string name = convertNickname(nickname);
 
@@ -421,10 +429,12 @@ void State::onBridgeMessage(const json::Value& message) {
     }
 
     if (type == "roster") {
+        // Merge only, never clear: nickname->UID is now populated authoritatively from Arma
+        // itself (see handleUid, "UID" in the legacy pipe) via getPlayerUID, which cannot collide
+        // between players. This message is optional/best-effort on top of that -- clearing here
+        // would let a stale or name-colliding roster push overwrite a correct mapping.
         const json::Value* clients = message.find("clients");
         if (!clients || !clients->isArray()) return;
-        m_nameToUid.clear();
-        m_talkingNames.clear();
         for (size_t i = 0; i < clients->items.size(); ++i) {
             const json::Value& entry = clients->items[i];
             if (!entry.isObject()) continue;

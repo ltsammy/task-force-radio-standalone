@@ -114,6 +114,11 @@ public:
     void handleDataFrame();
     void handleMissionEnd();
 
+    // Additive, non-legacy command (not part of docs/protocol-extension-legacy.md's compatibility
+    // table): the SQF side reports each unit's real getPlayerUID once, so nickname<->relay-UID
+    // resolution never depends on name matching (nicknames aren't guaranteed unique; UIDs are).
+    void handleUid(const std::string& nickname, const std::string& uid);
+
     // Two character answer of IS_SPEAKING / IS_SPEAKING_BULK.
     std::string speakingPair(const std::string& nickname) const;
 

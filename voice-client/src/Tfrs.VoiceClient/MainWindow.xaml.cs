@@ -170,11 +170,22 @@ public partial class MainWindow : Window
         }
 
         ConnectButton.IsEnabled = false;
-        // No user-facing display name (see project notes): the relay only needs a UID for
-        // routing, so a fixed technical name is fine — nothing shows it in the UI.
-        bool ok = await _coordinator.ConnectAsync(HostTextBox.Text.Trim(), port, PasswordBox.Password, "TFRS");
+        // Purely cosmetic: the relay broadcasts this as this client's name in ClientJoined, shown
+        // in server logs. The Arma extension no longer depends on it — it learns each unit's real
+        // relay UID directly from Arma (getPlayerUID) over the pipe, not by matching names (see
+        // docs/protocol-extension-legacy.md's "UID" command).
+        string displayName = string.IsNullOrWhiteSpace(_cliArgs.Name) ? "TFRS" : _cliArgs.Name;
+        bool ok = await _coordinator.ConnectAsync(HostTextBox.Text.Trim(), port, PasswordBox.Password, displayName);
         ConnectButton.IsEnabled = !ok;
-        if (ok) Log(Loc.Format("ConnectedTo", HostTextBox.Text, port));
+        if (ok)
+        {
+            Log(Loc.Format("ConnectedTo", HostTextBox.Text, port));
+            if (_coordinator.ServerDebugForceAudible)
+            {
+                Log("!!! SERVER DEBUG MODE: hearing everyone at full volume, ignoring the Arma addon's distance/gain — testing only.");
+                StatusText.Text += "  [DEBUG]";
+            }
+        }
     }
 
     private async void DisconnectButton_Click(object sender, RoutedEventArgs e)

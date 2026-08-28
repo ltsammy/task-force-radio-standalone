@@ -7,6 +7,11 @@ namespace Tfrs.VoiceClient.Audio;
 internal sealed record RemoteSourceState(float Gain, float AzimuthRadians, bool Muted, SourceEffect Effect, float ErrorLevel)
 {
     public static readonly RemoteSourceState Silent = new(0f, 0f, true, SourceEffect.Direct, 0f);
+
+    /// <summary>Used only when the server dictates debug/test mode (see ServerOptions.
+    /// DebugForceAudible) — full volume, centered, no radio effect, regardless of what (if
+    /// anything) the Arma extension's "units" message says.</summary>
+    public static readonly RemoteSourceState DebugAudible = new(1f, 0f, false, SourceEffect.Direct, 0f);
 }
 
 /// <summary>

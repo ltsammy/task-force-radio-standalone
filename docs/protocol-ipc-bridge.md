@@ -78,8 +78,12 @@ polling it live over a second connection.
 {"t":"roster","clients":[{"uid":"76561198000000001","name":"Foo"}]}
 ```
 
-Lets the extension/SQF side match voice-server participants against Arma player UIDs, if needed
-for diagnostics/UI.
+**Not currently sent by the voice client.** Nickname↔UID resolution is handled authoritatively by
+the addon itself now (the `UID` command in
+[`protocol-extension-legacy.md`](protocol-extension-legacy.md), driven by Arma's own
+`getPlayerUID` — no cross-referencing of display names, which aren't guaranteed unique). If a
+future client ever sends this again, the extension treats it as merge-only, best-effort diagnostic
+data — it will never clear or override an entry that `UID` already established.
 
 ## Interplay with the SQF extension protocol
 

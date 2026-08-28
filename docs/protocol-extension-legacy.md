@@ -142,6 +142,21 @@ All async, `"OK"` (or an empty string for `MISSIONEND`) as the response. `KILLED
 maintain a local antenna list in the extension (for later range/loss computation, if implemented —
 see `docs/dsp-audio-pipeline.md`, antenna loss formula).
 
+## `UID` (async) — new, additive, not part of the original protocol
+
+```
+UID \t nickname \t steamUid ~
+```
+
+Sent once per unit (from the same "first time we've seen this unit" check `fnc_sendPlayerInfo.sqf`
+already does for its `Killed` event handler), carrying that unit's `getPlayerUID`. This is how the
+extension resolves a nickname (everything above is nickname-keyed, for legacy-compatibility) to the
+UID this voice client actually uses to route playback — see `uidForLocked` / `m_nameToUid` in
+`State.cpp`. It replaces matching against the voice-relay's broadcast display names (unreliable:
+Arma nicknames aren't guaranteed unique, so two players could collide). The bridge's optional
+`roster` message (`protocol-ipc-bridge.md`) still exists but is now merge-only and never
+authoritative over this.
+
 ## Key pitfalls (don't forget)
 
 1. `~` is the entire sync/async distinguishing mechanism — no header, no length field.

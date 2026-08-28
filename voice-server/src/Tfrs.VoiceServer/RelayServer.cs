@@ -31,6 +31,10 @@ internal sealed class RelayServer : IAsyncDisposable
         Log($"TFRS voice relay listening on UDP port {_options.Port} (max clients: {_options.MaxClients}, timeout: {_options.TimeoutSeconds}s)");
         if (string.IsNullOrEmpty(_options.Password))
             Log("WARNING: no password configured — server accepts any client.");
+        if (_options.DebugForceAudible)
+            Log("!!! DEBUG_FORCE_AUDIBLE is ON: every client hears every other client at full volume, " +
+                "ignoring the Arma addon's distance/gain logic entirely. Testing only — turn this off " +
+                "for real play.");
 
         _ = Task.Run(() => TimeoutSweepLoopAsync(ct), ct);
 
@@ -271,6 +275,7 @@ internal sealed class RelayServer : IAsyncDisposable
         writer.WriteByte((byte)PacketType.ConnectAccept);
         writer.WriteUInt32(session.SessionId);
         writer.WriteUInt16((ushort)_options.MaxClients);
+        writer.WriteByte((byte)(_options.DebugForceAudible ? 1 : 0));
         Send(writer.Written, session.EndPoint);
     }
 

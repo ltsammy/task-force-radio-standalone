@@ -62,6 +62,10 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
         _network.VoiceFrameReceived += OnVoiceFrameReceived;
         _network.RemoteJoined += OnRemoteJoined;
         _network.RemoteLeft += OnRemoteLeft;
+        // Must land before any ClientJoined the server sends right after ConnectAccept can create
+        // a source — see the doc comment on DebugFlagReceived for why the awaited ConnectAsync
+        // return is too late for this.
+        _network.DebugFlagReceived += audible => _playback.DebugForceAudible = audible;
 
         _transmit.TransmittingChanged += t => { _isTransmitting = t; TransmittingChanged?.Invoke(t); };
         _transmit.LevelMeasured += l => MicLevelMeasured?.Invoke(l);
@@ -78,6 +82,10 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     }
 
     public bool IsConnected => _network.IsConnected;
+
+    /// <summary>Mirrors the server's ConnectAccept flag — see ServerOptions.DebugForceAudible.
+    /// Never settable from here; the client has no local override.</summary>
+    public bool ServerDebugForceAudible => _network.ServerDebugForceAudible;
     public bool MicMuted { get => _transmit.MicMuted; set { _transmit.MicMuted = value; PushStatus(); } }
     public bool SpeakerMuted { get => _playback.SpeakerMuted; set { _playback.SpeakerMuted = value; PushStatus(); } }
 
@@ -222,6 +230,11 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
 
     private void OnUnitsReceived(IReadOnlyList<UnitEntry> units)
     {
+        // Server dictated debug/test mode: every source was already forced audible when created
+        // (PlaybackEngine.DebugForceAudible) — ignore whatever the extension computes so it can't
+        // silence/pan anyone back, keeping this a clean test of raw voice transport.
+        if (ServerDebugForceAudible) return;
+
         var seenUids = new HashSet<string>(units.Count);
 
         foreach (var unit in units)

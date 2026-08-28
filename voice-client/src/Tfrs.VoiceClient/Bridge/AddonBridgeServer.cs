@@ -6,7 +6,6 @@ using System.Text.Json;
 namespace Tfrs.VoiceClient.Bridge;
 
 internal sealed record UnitEntry(string Uid, float Gain, float Azimuth, bool Muted, string Fx, float ErrorLevel);
-internal sealed record RosterClient(string Uid, string Name);
 
 /// <summary>
 /// Named-pipe server for the Arma extension (see docs/protocol-ipc-bridge.md). Accepts one client
@@ -152,20 +151,6 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
         sb.Append(",\"transmitting\":").Append(transmitting ? "true" : "false");
         sb.Append(",\"error\":").Append(error is null ? "null" : JsonSerializer.Serialize(error));
         sb.Append('}');
-        await WriteLineAsync(sb.ToString());
-    }
-
-    public async Task SendRosterAsync(IReadOnlyList<RosterClient> clients)
-    {
-        var sb = new StringBuilder();
-        sb.Append("{\"t\":\"roster\",\"clients\":[");
-        for (int i = 0; i < clients.Count; i++)
-        {
-            if (i > 0) sb.Append(',');
-            sb.Append("{\"uid\":").Append(JsonSerializer.Serialize(clients[i].Uid));
-            sb.Append(",\"name\":").Append(JsonSerializer.Serialize(clients[i].Name)).Append('}');
-        }
-        sb.Append("]}");
         await WriteLineAsync(sb.ToString());
     }
 
