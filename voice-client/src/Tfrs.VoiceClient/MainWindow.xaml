@@ -4,7 +4,7 @@
         xmlns:loc="clr-namespace:Tfrs.VoiceClient.Localization"
         Title="{loc:Loc AppTitle}"
         Background="{StaticResource BgBrush}"
-        Height="580" Width="360" MinHeight="580" MinWidth="360"
+        Height="630" Width="360" MinHeight="630" MinWidth="360"
         ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen">
     <Grid Margin="18">
         <Grid.RowDefinitions>
@@ -13,7 +13,11 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
+            <!-- MinHeight guards this row's content (mute toggles + Settings button) against being
+                 squeezed off-window when the Levels group above grows (SilenceHintText becoming
+                 visible adds a wrapped line) — a fixed-size, non-resizable window has nowhere else
+                 for that extra height to come from. -->
+            <RowDefinition Height="*" MinHeight="120" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 

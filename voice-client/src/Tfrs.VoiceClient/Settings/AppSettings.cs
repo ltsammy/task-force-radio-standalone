@@ -31,6 +31,14 @@ internal sealed class AppSettings
     private static string SettingsPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Tfrs", "VoiceClient", "settings.json");
 
+    // Save() is called from both the UI thread (every slider drag tick) and the addon bridge's
+    // background pipe thread (VoiceSessionCoordinator.OnLocalUidReceived) -- two concurrent,
+    // unsynchronized File.WriteAllText calls to the same path can interleave into a corrupted
+    // file, which Load()'s catch-all then silently treats as "reset every setting to default".
+    // This lock is what actually fixes that; it was the real cause behind an apparent
+    // "VAD sensitivity keeps resetting itself" report.
+    private static readonly object SaveLock = new();
+
     public static AppSettings Load()
     {
         try
@@ -51,7 +59,7 @@ internal sealed class AppSettings
             string path = SettingsPath;
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(path, json);
+            lock (SaveLock) File.WriteAllText(path, json);
         }
         catch
         {
