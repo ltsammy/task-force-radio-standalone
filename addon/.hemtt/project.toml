@@ -8,6 +8,14 @@ minor = 0
 patch = 0
 git_hash = 8
 
+[lints.sqf]
+# format ["some string with no %1", extraArg] is harmless at runtime (SQF's format ignores unused
+# args) — downgraded to a warning rather than fixed, since the 4 flagged call sites look like they
+# may have intended to interpolate the extra arg (e.g. into a per-channel-unique ACE action ID or a
+# localized hint), which would be a content/behavior fix outside this pass's scope. See
+# addon/README.md "Known HEMTT build findings".
+format_args = "Warning"
+
 [files]
 include = [
     "LICENSE.md",

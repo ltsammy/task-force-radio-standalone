@@ -17,7 +17,7 @@
 
   Public: No
 */
-#include "\a3\editor_f\Data\Scripts\dikCodes.h"
+#include "\z\tfar\addons\core\dikCodes_local.h"
 #define LOCALIZE_CHANNEL(x,y) y call _fnc_localize##x##Channel
 
 TF_tangent_sw_scancode = DIK_CAPSLOCK;

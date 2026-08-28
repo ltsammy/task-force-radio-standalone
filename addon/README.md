@@ -63,3 +63,58 @@ cd addon
 Prerequisites: `gh` CLI authenticated (`gh auth login`), `hemtt` on PATH, Steam running and logged
 into the publishing account. First run creates the Workshop item and writes `publishedid` into
 `meta.cpp` — commit that so later runs update the same item instead of creating new ones.
+
+## Known HEMTT build findings
+
+`addons/` builds under HEMTT after fixing syntax HEMTT is stricter about than the legacy tooling
+(addonbuilder/pboProject) — all purely syntactic, verified against the rapified output, no
+behavior change:
+
+- ~994 unquoted array/expression values (`controls[]={background,...}` → `{"background",...}`,
+  and GUI positioning math like `x = 0.85 * safezoneW;` → `x = "0.85 * safezoneW";` — both
+  documented HEMTT idioms for values older tools auto-quoted silently).
+- 2 `true`/`false` barewords converted to `1`/`0` instead of quoted, to keep their rapified type as
+  Number rather than String.
+- A parent-class case mismatch (`class Controls: controls` → `: Controls`) in
+  `addons/static_radios/CfgVehicles.hpp` — Arma is case-insensitive here, HEMTT isn't.
+- `VERSION_CONFIG` (`addons/core/script_mod.hpp`) overridden locally so the legacy `version`
+  scalar gets a real single number (`BUILD`) instead of the unquoted 4-part
+  `MAJOR.MINOR.PATCHLVL.BUILD` expression CBA's default macro produces — `MINOR` is `-1` in
+  `script_version.hpp`, so that expression was never a valid single Arma number to begin with;
+  `versionStr`/`versionAr[]` keep the full, unabbreviated version info unchanged.
+- `PATHTOF(...)` → `QPATHTOF(...)` in one `CfgSounds.hpp` entry (CBA's own quoted variant).
+- `REQUIRED_VERSION` bumped from `1.72` to `2.02` in `script_mod.hpp` — `addons/core` uses
+  `createHashMap`, which needs 2.02; the declared minimum was just stale (every real Arma 3
+  install is already well past this).
+- A missing debug-trace argument (`TRACE_2(_unit,_distance)` → `TRACE_2("revealInArea",_unit,_distance)`
+  in `fnc_revealInArea.sqf`) — `TRACE_2` compiles to nothing outside debug builds, zero release impact.
+- **Renamed 8 preprocessor-only fragment files from `.sqf` to `.hpp`** (the 7 `XEH_PREP.sqf` files
+  plus `functions/flexiUI/flexiInit.sqf`, all `#include`d textually into a file that already has
+  macro context, never meant to be compiled standalone) — matches the convention ACE3 and other
+  HEMTT-built addons use for exactly this situation. HEMTT's SQF analyzer independently parses
+  every `.sqf` file it finds as if it were complete, standalone SQF; with the macros they reference
+  unresolved outside their intended `#include` context, that parse fails. `.hpp` signals
+  "preprocessor fragment, don't lint standalone" the same way it already does for config fragments.
+- `addons/core/functions/fnc_initKeybinds.sqf` included BI's own
+  `\a3\editor_f\Data\Scripts\dikCodes.h` for 8 `DIK_*` keycode constants — that absolute engine
+  path needs a P-Drive/Arma 3 install to resolve at build time. Replaced with a local
+  `dikCodes_local.h` containing just those 8 constants (standard, unchanging DirectInput scancode
+  values, not Arma-specific content).
+- `[lints.sqf] format_args = "Warning"` in `project.toml`: 4 `format [...]` calls (2 in
+  `fnc_addWirelessIntercomMenu.sqf`, 2 in `fnc_connect.sqf`) pass an argument their format string
+  has no `%1` for. Harmless at runtime (SQF's `format` ignores unused args), but the extra
+  argument (a channel ID, a headgear name) looks like it may have been intended to appear in the
+  message/action-ID — deliberately **not changed**, since fixing that would be a content/behavior
+  decision outside a build-compatibility pass, not just a syntax one.
+
+**One remaining, unresolved item:** `addons/static_radios/functions/fnc_zeusAttributes.sqf`
+`#include`s BI's own `\a3\ui_f_curator\UI\Displays\RscDisplayAttributes.sqf` (the base Zeus
+attribute-display UI class it extends) — unlike `dikCodes.h`, this is a large, complex BI-authored
+UI class body, not a small constant table, so it wasn't vendored. Per HEMTT's
+[P-Drive documentation](https://hemtt.dev/configuration/p-drive/), this resolves automatically on
+a machine with an actual Arma 3 installation (falls back to extracting the file from the game
+install if no P-Drive is mounted) — so this likely won't be an issue running `hemtt check`/`build`
+locally on a machine with Arma 3 installed. It **will** currently fail in `.github/workflows/addon.yml`,
+since GitHub-hosted runners have no Arma 3 install. Fixing that needs either a P-Drive-equivalent
+CI setup (e.g. `arma-actions/arma3-tools`, which needs access to BI's Arma 3 Tools depot) or
+someone confirming it's safe to vendor a minimal stand-in for this one BI file — not done here.
