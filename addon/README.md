@@ -49,7 +49,17 @@ up).
 
 HEMTT has a built-in `hemtt publish` command — but it authenticates through the Steamworks client
 API, which **requires a running, logged-in local Steam client**. That makes it a one-person,
-run-it-on-your-own-machine command, not something a GitHub Actions runner can do. A real headless
-CI upload would need a separate `steamcmd`-based pipeline (username/password/Steam Guard as
-secrets) — not set up here; ask if you want that wired up, since it involves your Steam publishing
-credentials.
+run-it-on-your-own-machine command, not something a GitHub Actions runner can do.
+
+Publishing is therefore split across machines: CI builds the extension DLLs (needs MSVC), and
+[`publish-local.ps1`](publish-local.ps1) pulls those from the latest successful `addon` workflow
+run and then runs `hemtt publish` locally, which builds+signs+zips+uploads using them:
+
+```powershell
+cd addon
+./publish-local.ps1
+```
+
+Prerequisites: `gh` CLI authenticated (`gh auth login`), `hemtt` on PATH, Steam running and logged
+into the publishing account. First run creates the Workshop item and writes `publishedid` into
+`meta.cpp` — commit that so later runs update the same item instead of creating new ones.
