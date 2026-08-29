@@ -18,6 +18,8 @@ Protocol version: `1` (`Protocol.VersionMajor`).
 | `MaxNameLength` | 32 |
 | `MaxUidLength` | 40 |
 | `MaxOpusFrameLength` | 500 bytes |
+| `MaxFreqLength` | 16 |
+| `MaxSubtypeLength` | 16 |
 
 ## Packet types
 
@@ -34,6 +36,8 @@ Protocol version: `1` (`Protocol.VersionMajor`).
 | 9 | ClientJoined | Server → Client |
 | 10 | ClientLeft | Server → Client |
 | 11 | RosterRequest | Client → Server |
+| 12 | RadioTxUpdate | Client → Server |
+| 13 | RadioTxBroadcast | Server → Client |
 
 ### 1 — ConnectRequest (Client → Server)
 
@@ -156,6 +160,38 @@ byte packetType = 11
 The server replies with one `ClientJoined` packet per currently connected client (sent to the
 requester). Safety net against lost `ClientJoined`/`ClientLeft` broadcasts (UDP is unreliable) —
 the client should call this e.g. every 15-30s and reconcile against its local roster list.
+
+### 12 — RadioTxUpdate (Client → Server)
+
+```
+byte   packetType = 12
+byte   active        // 0/1
+byte   freqLen; byte[] freq   // max 16 bytes, e.g. "31.05N"
+uint16 range          // meters, rounded
+byte   subLen; byte[] sub     // digital | digital_lr | airborne | dd | phone — max 16 bytes
+```
+
+The client's own local radio-transmit state (TANGENT + FREQ, from its Arma extension bridge —
+see [`protocol-ipc-bridge.md`](protocol-ipc-bridge.md)'s `localTx`), sent whenever it changes.
+`freq`/`range`/`sub` are meaningless when `active=0`.
+
+### 13 — RadioTxBroadcast (Server → Client, relay of RadioTxUpdate)
+
+```
+byte   packetType = 13
+uint32 senderSessionId
+byte   active
+byte   freqLen; byte[] freq
+uint16 range
+byte   subLen; byte[] sub
+```
+
+Forwarded 1:1 to every other connected client, same fire-and-forget pattern as VoiceDown — the
+server has no concept of frequencies or who can hear whom, it's purely relaying metadata so each
+receiving client can forward it to its own local extension as a `tx` message. Without this, no
+extension anywhere ever learns who else is transmitting on a frequency, since the TeamSpeak
+client-to-client channel this used to travel over doesn't exist here (see
+[`protocol-ipc-bridge.md`](protocol-ipc-bridge.md) and the extension's README "real gap" note).
 
 ## Deliberate simplifications (MVP)
 

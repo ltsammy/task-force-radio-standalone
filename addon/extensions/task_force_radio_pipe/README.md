@@ -157,10 +157,14 @@ reports "not speaking" for remote players.
 `status` may additionally include `serverName`, `serverUid`, and `channelName`; those are then
 passed through for `TS_INFO SERVER/SERVERUID/CHANNEL` (placeholders otherwise).
 
-**This is a real gap, not just a nice-to-have:** without some client-to-client relay of `tx` (see
-the network-protocol extension proposed in `docs/protocol-network.md`'s changelog / the voice
-client's implementation status), radio audio only ever works through the fallback heuristic below,
-never with correct per-frequency routing.
+**Implemented as of the `RadioTxUpdate`/`RadioTxBroadcast` packets in `docs/protocol-network.md`**:
+the extension reports its own tangent/frequency state to the voice client as `localTx` on `units`
+(see `docs/protocol-ipc-bridge.md`), which relays it through the voice server to every other
+client, which forwards it to its own local extension as `tx`. `uid` is what's actually sent (not
+`name`) — nickname↔UID resolution no longer depends on a `roster` push at all, see the `UID`
+command in `protocol-extension-legacy.md`. The fallback heuristic below still exists underneath
+this for the brief window before a client's first `tx` arrives, or an older voice client that
+doesn't relay it yet.
 
 ### 3. Fallback heuristic until `tx` is implemented
 

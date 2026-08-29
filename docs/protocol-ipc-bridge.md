@@ -22,7 +22,7 @@ shared memory with a binary format.
 {"t":"units","u":[
   {"uid":"76561198000000001","gain":0.82,"az":1.047,"muted":false,"fx":"sw","err":0.15},
   {"uid":"76561198000000002","gain":0.10,"az":-2.5,"muted":false,"fx":"direct","err":0.0}
-],"myUid":"76561198000000003"}
+],"myUid":"76561198000000003","localTx":{"active":true,"freq":"31.05N","range":1500,"sub":"digital"}}
 ```
 
 - `myUid`: the local player's own real Steam UID (`getPlayerUID`), once known (see the `UID`
@@ -54,6 +54,17 @@ shared memory with a binary format.
   stereo panning (no HRTF/binaural — good enough for a clearly perceivable direction, see
   `PlaybackMixer`).
 - `muted`: hard mute independent of `gain` (e.g. encryption key mismatch).
+- `localTx`: `null` when we're not currently transmitting on a radio, otherwise the frequency/
+  range/subtype of what we're sending (from the `TANGENT`/`TANGENT_LR` command — see
+  [`protocol-extension-legacy.md`](protocol-extension-legacy.md)). The voice client relays this to
+  the voice server (a `RadioTxUpdate`/`RadioTxBroadcast` packet pair, see
+  [`protocol-network.md`](protocol-network.md)), and every OTHER client that receives it forwards
+  it to its own local extension as a `tx` message (below) — this is the only way any extension
+  finds out someone else is transmitting on a frequency, since the TeamSpeak client-to-client
+  channel this used to travel over doesn't exist here. Without it, radio never has anyone to route
+  audio for (a fallback heuristic exists for SW-only bring-up before this existed — see the
+  extension's README "Fallback heuristic" section — but it doesn't cover LR and isn't
+  frequency-accurate).
 
 ### `local` — optional transmit override
 
@@ -92,6 +103,18 @@ the addon itself now (the `UID` command in
 `getPlayerUID` — no cross-referencing of display names, which aren't guaranteed unique). If a
 future client ever sends this again, the extension treats it as merge-only, best-effort diagnostic
 data — it will never clear or override an entry that `UID` already established.
+
+### `tx` — who else is currently transmitting on radio (full snapshot, on change)
+
+```json
+{"t":"tx","u":[{"uid":"76561198000000001","freq":"31.05N","range":1500,"sub":"digital"}]}
+```
+
+Fed entirely by other players' `localTx` (relayed through the voice server — see above), not
+anything the local extension computes. **Full snapshot, like `units`**: whoever is missing is no
+longer transmitting; the extension also independently expires an entry after 1.5s in case this
+stops arriving (sender disconnected without a clean "stopped" update). `sub` matches `TANGENT`'s
+subtype field (`digital`, `digital_lr`, `airborne`, `dd`, `phone`).
 
 ## Interplay with the SQF extension protocol
 

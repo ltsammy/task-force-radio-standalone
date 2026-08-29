@@ -63,6 +63,9 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
     public event Action<uint, string, string>? RemoteJoined;
     public event Action<uint>? RemoteLeft;
     public event Action<double>? RttMeasured;
+    /// <summary>Another client's local radio-transmit state, relayed by the server: senderSessionId,
+    /// active, freq, range (meters), sub(type). See docs/protocol-ipc-bridge.md "localTx"/"tx".</summary>
+    public event Action<uint, bool, string, ushort, string>? RadioTxReceived;
 
     public async Task<bool> ConnectAsync(string host, int port, string password, string uid, string displayName, CancellationToken outerCt)
     {
@@ -179,6 +182,23 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
         _ = SendSafeAsync(writer.Written.ToArray());
     }
 
+    /// <summary>Broadcasts (via the server) what we're currently transmitting on radio, so every
+    /// other client can forward it to its own local extension. Fire-and-forget, like voice frames
+    /// — the extension's own 1.5s expiry (see State.cpp's kTxExpiry) tolerates a dropped packet.</summary>
+    public void SendRadioTx(bool active, string freq, ushort range, string sub)
+    {
+        if (_udp is null || !IsConnected) return;
+
+        Span<byte> buf = stackalloc byte[1 + 1 + 1 + Protocol.MaxFreqLength + 2 + 1 + Protocol.MaxSubtypeLength];
+        var writer = new PacketWriter(buf);
+        writer.WriteByte((byte)PacketType.RadioTxUpdate);
+        writer.WriteByte((byte)(active ? 1 : 0));
+        writer.WriteString8(Truncate(freq, Protocol.MaxFreqLength));
+        writer.WriteUInt16(range);
+        writer.WriteString8(Truncate(sub, Protocol.MaxSubtypeLength));
+        _ = SendSafeAsync(writer.Written.ToArray());
+    }
+
     public void RequestRoster()
     {
         if (_udp is null || !IsConnected) return;
@@ -289,6 +309,16 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
             {
                 uint sessionId = reader.ReadUInt32();
                 RemoteLeft?.Invoke(sessionId);
+                break;
+            }
+            case PacketType.RadioTxBroadcast:
+            {
+                uint senderSessionId = reader.ReadUInt32();
+                bool active = reader.ReadByte() != 0;
+                string freq = reader.ReadString8(Protocol.MaxFreqLength);
+                ushort range = reader.ReadUInt16();
+                string sub = reader.ReadString8(Protocol.MaxSubtypeLength);
+                RadioTxReceived?.Invoke(senderSessionId, active, freq, range, sub);
                 break;
             }
         }

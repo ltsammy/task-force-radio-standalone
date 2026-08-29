@@ -7,6 +7,13 @@ namespace Tfrs.VoiceClient.Bridge;
 
 internal sealed record UnitEntry(string Uid, float Gain, float Azimuth, bool Muted, string Fx, float ErrorLevel);
 
+/// <summary>Our own local radio-transmit state, as reported by the extension's "localTx" field
+/// (see docs/protocol-ipc-bridge.md). Freq/Range/Sub are meaningless when Active is false.</summary>
+internal readonly record struct LocalTxState(bool Active, string Freq, int Range, string Sub);
+
+/// <summary>One entry for the "tx" message sent to the extension — see AddonBridgeServer.SendTxAsync.</summary>
+internal readonly record struct RemoteTxEntry(string Uid, string Freq, int Range, string Sub);
+
 /// <summary>
 /// Named-pipe server for the Arma extension (see docs/protocol-ipc-bridge.md). Accepts one client
 /// connection at a time and re-listens after disconnect — the extension only exists while Arma is
@@ -27,6 +34,9 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
     /// it knows it — see the "myUid" field on the "units" message in docs/protocol-ipc-bridge.md.
     /// Only fires with a non-empty value.</summary>
     public event Action<string>? LocalUidReceived;
+    /// <summary>Fires on every "units" message with the current local radio-transmit state
+    /// (Active=false most of the time) — see LocalTxState.</summary>
+    public event Action<LocalTxState>? LocalTxChanged;
     public event Action? ExtensionConnected;
     public event Action? ExtensionDisconnected;
 
@@ -136,6 +146,17 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
             if (myUid.Length > 0) LocalUidReceived?.Invoke(myUid);
         }
 
+        LocalTxState localTx = default;
+        if (root.TryGetProperty("localTx", out var txProp) && txProp.ValueKind == JsonValueKind.Object)
+        {
+            bool active = txProp.TryGetProperty("active", out var a2) && a2.GetBoolean();
+            string freq = txProp.TryGetProperty("freq", out var f2) ? f2.GetString() ?? "" : "";
+            int range = txProp.TryGetProperty("range", out var r2) ? r2.GetInt32() : 0;
+            string sub = txProp.TryGetProperty("sub", out var s2) ? s2.GetString() ?? "" : "";
+            localTx = new LocalTxState(active, freq, range, sub);
+        }
+        LocalTxChanged?.Invoke(localTx);
+
         UnitsReceived?.Invoke(list);
     }
 
@@ -161,6 +182,26 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
         sb.Append(",\"transmitting\":").Append(transmitting ? "true" : "false");
         sb.Append(",\"error\":").Append(error is null ? "null" : JsonSerializer.Serialize(error));
         sb.Append('}');
+        await WriteLineAsync(sb.ToString());
+    }
+
+    /// <summary>Full snapshot of every remote player currently transmitting on radio (see
+    /// docs/protocol-ipc-bridge.md's "tx" message) — anyone missing is treated as no longer
+    /// transmitting, same semantics as "units".</summary>
+    public async Task SendTxAsync(IReadOnlyList<RemoteTxEntry> entries)
+    {
+        var sb = new StringBuilder();
+        sb.Append("{\"t\":\"tx\",\"u\":[");
+        for (int i = 0; i < entries.Count; i++)
+        {
+            if (i > 0) sb.Append(',');
+            var e = entries[i];
+            sb.Append("{\"uid\":").Append(JsonSerializer.Serialize(e.Uid));
+            sb.Append(",\"freq\":").Append(JsonSerializer.Serialize(e.Freq));
+            sb.Append(",\"range\":").Append(e.Range);
+            sb.Append(",\"sub\":").Append(JsonSerializer.Serialize(e.Sub)).Append('}');
+        }
+        sb.Append("]}");
         await WriteLineAsync(sb.ToString());
     }
 

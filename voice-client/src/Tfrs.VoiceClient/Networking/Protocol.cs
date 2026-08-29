@@ -17,6 +17,8 @@ internal static class Protocol
     public const int MaxNameLength = 32;
     public const int MaxUidLength = 40;
     public const int MaxOpusFrameLength = 500;
+    public const int MaxFreqLength = 16;
+    public const int MaxSubtypeLength = 16;
 }
 
 internal enum PacketType : byte
@@ -32,6 +34,8 @@ internal enum PacketType : byte
     ClientJoined = 9,
     ClientLeft = 10,
     RosterRequest = 11,
+    RadioTxUpdate = 12,
+    RadioTxBroadcast = 13,
 }
 
 internal enum ConnectRejectReason : byte

@@ -900,6 +900,25 @@ std::string State::buildUnitsMessage() {
 
     out += "],\"myUid\":";
     out += json::quote(myUid);
+
+    // Tells the voice client what WE are currently transmitting so it can relay it to every other
+    // player's client, which forwards it to their extension as a "tx" message -- see
+    // docs/protocol-ipc-bridge.md. Without this, no extension anywhere ever learns who's
+    // transmitting on which frequency (the TS3 client-to-client channel this used to travel over
+    // doesn't exist here), and radio never has anyone to route audio for at all.
+    out += ",\"localTx\":";
+    if (m_tangentPressed) {
+        out += "{\"active\":true,\"freq\":";
+        out += json::quote(m_txFrequency);
+        out += ",\"range\":";
+        out += json::number(m_txRange, 0);
+        out += ",\"sub\":";
+        out += json::quote(m_txSubtype);
+        out += '}';
+    } else {
+        out += "null";
+    }
+
     out += '}';
     return out;
 }

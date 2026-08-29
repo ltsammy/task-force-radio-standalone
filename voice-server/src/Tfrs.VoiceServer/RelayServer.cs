@@ -88,6 +88,9 @@ internal sealed class RelayServer : IAsyncDisposable
             case PacketType.VoiceUp:
                 HandleVoiceUp(ref reader, remote);
                 break;
+            case PacketType.RadioTxUpdate:
+                HandleRadioTxUpdate(ref reader, remote);
+                break;
             case PacketType.Disconnect:
                 HandleDisconnect(remote);
                 break;
@@ -221,6 +224,46 @@ internal sealed class RelayServer : IAsyncDisposable
         writer.WriteByte(flags);
         writer.WriteBytes(opus);
         var packet = writer.Written.ToArray(); // detach from stack before the async fan-out below
+
+        foreach (var target in _sessionsById.Values)
+        {
+            if (target.SessionId == sender.SessionId) continue;
+            FireAndForgetSend(packet, target.EndPoint);
+        }
+    }
+
+    /// <summary>Pure relay, same as HandleVoiceUp: no server-side understanding of frequencies or
+    /// who can hear whom — every receiving client's own Arma extension decides that, this just
+    /// needs to reach everyone else. See docs/protocol-ipc-bridge.md's "localTx"/"tx" messages.</summary>
+    private void HandleRadioTxUpdate(ref PacketReader reader, IPEndPoint remote)
+    {
+        if (!_sessionsByEndPoint.TryGetValue(remote, out var sender)) return;
+        sender.LastSeenUtc = DateTime.UtcNow;
+
+        byte active;
+        string freq, sub;
+        ushort range;
+        try
+        {
+            active = reader.ReadByte();
+            freq = reader.ReadString8(Protocol.MaxFreqLength);
+            range = reader.ReadUInt16();
+            sub = reader.ReadString8(Protocol.MaxSubtypeLength);
+        }
+        catch (InvalidDataException)
+        {
+            return;
+        }
+
+        Span<byte> outBuf = stackalloc byte[1 + 4 + 1 + 1 + Protocol.MaxFreqLength + 2 + 1 + Protocol.MaxSubtypeLength];
+        var writer = new PacketWriter(outBuf);
+        writer.WriteByte((byte)PacketType.RadioTxBroadcast);
+        writer.WriteUInt32(sender.SessionId);
+        writer.WriteByte(active);
+        writer.WriteString8(freq);
+        writer.WriteUInt16(range);
+        writer.WriteString8(sub);
+        var packet = writer.Written.ToArray();
 
         foreach (var target in _sessionsById.Values)
         {

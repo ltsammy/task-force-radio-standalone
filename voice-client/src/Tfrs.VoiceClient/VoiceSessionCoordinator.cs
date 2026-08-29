@@ -28,6 +28,13 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     private readonly HashSet<string> _lastActiveUnitUids = new();
     private readonly object _rosterLock = new();
 
+    // Remote radio-transmit state relayed via the voice server (see docs/protocol-ipc-bridge.md
+    // "localTx"/"tx") -- longer than the extension's own 1.5s kTxExpiry so our snapshot never goes
+    // stale before the extension's independent expiry would anyway; this is just a safety net for
+    // a sender that disconnects without an explicit "stopped" update.
+    private static readonly TimeSpan RemoteTxExpiry = TimeSpan.FromSeconds(2);
+    private readonly Dictionary<uint, (string Freq, int Range, string Sub, DateTime ExpiresUtc)> _remoteTx = new();
+
     private bool _isTransmitting;
 
     public AppSettings Settings { get; }
@@ -80,6 +87,7 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
         // a source — see the doc comment on DebugFlagReceived for why the awaited ConnectAsync
         // return is too late for this.
         _network.DebugFlagReceived += audible => _playback.DebugForceAudible = audible;
+        _network.RadioTxReceived += OnRadioTxReceived;
 
         _transmit.TransmittingChanged += t => { _isTransmitting = t; TransmittingChanged?.Invoke(t); };
         _transmit.LevelMeasured += l => MicLevelMeasured?.Invoke(l);
@@ -90,10 +98,12 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
         _bridge.UnitsReceived += OnUnitsReceived;
         _bridge.LocalOverrideReceived += v => _transmit.AddonTransmitOverride = v;
         _bridge.LocalUidReceived += OnLocalUidReceived;
+        _bridge.LocalTxChanged += state => _network.SendRadioTx(
+            state.Active, state.Freq, (ushort)Math.Clamp(state.Range, 0, ushort.MaxValue), state.Sub);
         _bridge.ExtensionConnected += () => ExtensionConnectionChanged?.Invoke(true);
         _bridge.ExtensionDisconnected += () => ExtensionConnectionChanged?.Invoke(false);
 
-        _statusHeartbeat = new System.Threading.Timer(_ => PushStatus(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        _statusHeartbeat = new System.Threading.Timer(_ => { PushStatus(); PruneExpiredTx(); }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
 
     public bool IsConnected => _network.IsConnected;
@@ -204,6 +214,7 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
             _sessionToUid.Clear();
             _uidToSession.Clear();
             _lastActiveUnitUids.Clear();
+            _remoteTx.Clear();
         }
         ConnectedCountChanged?.Invoke(0);
     }
@@ -254,13 +265,60 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
 
     private void OnRemoteLeft(uint sessionId)
     {
+        bool hadTx;
         lock (_rosterLock)
         {
             if (_sessionToUid.Remove(sessionId, out var uid))
                 _uidToSession.Remove(uid);
+            hadTx = _remoteTx.Remove(sessionId);
         }
         _playback.RemoveSource(sessionId);
         PushConnectedCount();
+        if (hadTx) PushTxToExtension();
+    }
+
+    /// <summary>Another client relayed what it's currently transmitting on radio (or that it
+    /// stopped) — see VoiceNetworkClient.RadioTxReceived. Full snapshot semantics: this just
+    /// updates our view of that one sender and re-pushes the whole current set to our own
+    /// extension, same pattern as "units".</summary>
+    private void OnRadioTxReceived(uint senderSessionId, bool active, string freq, ushort range, string sub)
+    {
+        lock (_rosterLock)
+        {
+            if (active)
+                _remoteTx[senderSessionId] = (freq, range, sub, DateTime.UtcNow + RemoteTxExpiry);
+            else
+                _remoteTx.Remove(senderSessionId);
+        }
+        PushTxToExtension();
+    }
+
+    private void PruneExpiredTx()
+    {
+        bool changed = false;
+        lock (_rosterLock)
+        {
+            var now = DateTime.UtcNow;
+            var expired = new List<uint>();
+            foreach (var kv in _remoteTx)
+                if (kv.Value.ExpiresUtc < now) expired.Add(kv.Key);
+            foreach (var key in expired) { _remoteTx.Remove(key); changed = true; }
+        }
+        if (changed) PushTxToExtension();
+    }
+
+    private void PushTxToExtension()
+    {
+        var entries = new List<RemoteTxEntry>();
+        lock (_rosterLock)
+        {
+            foreach (var kv in _remoteTx)
+            {
+                if (!_sessionToUid.TryGetValue(kv.Key, out var uid)) continue;
+                entries.Add(new RemoteTxEntry(uid, kv.Value.Freq, kv.Value.Range, kv.Value.Sub));
+            }
+        }
+        _ = _bridge.SendTxAsync(entries);
     }
 
     private void PushConnectedCount()
