@@ -95,14 +95,21 @@ if (_isRemotePlayer && {TFAR_currentUnit getVariable ["TFAR_forceSpectator",fals
 };
 
 private _data = [
-    "POS	%1	%2	%3	%4	%5	%6	%7	%8	%9	%10	%11	%12	%13~",
+    "POS	%1	%2	%3	%4	%5	%6	%7	%8	%9	%10	%11	%12	%13	%14~",
     _unitName,
     _pos, _curViewDir,//Position
     _can_speak, _useSw, _useLr, _useDd, _vehicle,
     _terrainInterception,
     if (_isSpectating) then { 1 } else { _unit getVariable ["tf_voiceVolume", 1.0] }, //Externally used API variable. Don't change name
     _object_interception, //Interceptions
-    _isSpectating, _isEnemy
+    _isSpectating, _isEnemy,
+    // Additive (%14), not part of the original legacy protocol: this unit's own direct-speech
+    // range in meters (whisper/normal/yelling), broadcast via fnc_sendFrequencyInfo.sqf's periodic
+    // setVariable [..., true]. Lets the audibility solver use the SPEAKER's own range instead of
+    // the LISTENER's (see docs/protocol-extension-legacy.md and old/ts/src/plugin.cpp's
+    // clientData->voiceVolume -- the original TS3 plugin always used the emitter's own volume here;
+    // that data simply never had a transport in the SQF/extension protocol until now).
+    _unit getVariable ["TF_speak_volume_meters", TFAR_VOLUME_NORMAL]
     ];
 
 (format _data) //format is actually faster. 0.128 vs 0.131

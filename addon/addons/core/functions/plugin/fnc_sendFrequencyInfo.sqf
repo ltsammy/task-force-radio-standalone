@@ -113,6 +113,14 @@ if (((count _lrRadios > 0) || _currentUnitIsRemote) && {[TFAR_currentUnit, _isol
 };
 private _alive = alive TFAR_currentUnit;
 
+// Broadcast our own current direct-speech range (whisper/normal/yelling) so other clients'
+// fnc_preparePositionCoordinates.sqf can read it back for THEIR audibility calculation -- the
+// original TS3 plugin always used the speaker's own volume for this (clientData->voiceVolume in
+// old/ts/src/plugin.cpp), not the listener's, but that data never had a transport of its own in
+// the SQF/extension protocol until now. Piggybacks on this function's own existing periodic poll
+// rather than a dedicated one, matching TF_speak_volume_meters' own read a few lines below.
+TFAR_currentUnit setVariable ["TF_speak_volume_meters", TF_speak_volume_meters, true];
+
 private _nickname = if (_alive) then {name player} else {profileName};
 
 _nickname = (TFAR_currentUnit getVariable ["TFAR_unitName", _nickname]);

@@ -130,6 +130,13 @@ void State::handlePos(const std::vector<std::string>& tokens) {
     client.objectInterception = parseArmaNumberToInt(tokens[11]);
     client.isSpectating = isTrue(tokens[12]);
     client.isEnemyToPlayer = isTrue(tokens[13]);
+    // Additive 15th token -- optional for backward compatibility with third-party callers still on
+    // the 14-token legacy POS format, in which case this unit's range simply stays at whatever it
+    // already was (or the 20m default for a never-yet-updated entry).
+    if (tokens.size() >= 15) {
+        const float range = parseArmaNumber(tokens[14]);
+        client.speakRangeMeters = (range > 0.0f) ? range : 20.0f;
+    }
     client.dead = false;
     client.lastUpdate = Clock::now();
 }
@@ -550,7 +557,6 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
                                       Clock::time_point now, std::vector<AudibleUnit>& out) {
     const Vec3 myPos = me.extrapolatedPosition(now);
     const Vec3 hisPos = other.extrapolatedPosition(now);
-    const float speakVolume = static_cast<float>(m_speakVolumeMeters);
 
     const bool headsetLowered = configBool("headsetLowered", false);
 
@@ -771,10 +777,15 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
     }
 
     // -- 4) direct speech ---------------------------------------------------
+    // Uses other.speakRangeMeters (the SPEAKER's own whisper/normal/yelling range), not the local
+    // player's speakVolume -- matches the original TS3 plugin's clientData->voiceVolume
+    // (old/ts/src/plugin.cpp), which always used the emitter's own volume for this. Using the
+    // listener's own range instead was a real bug: it meant how far away you could hear someone
+    // depended on YOUR OWN current speak-volume setting, not theirs.
     const float directDistance =
         myPos.distanceTo(hisPos) + 2.0f * static_cast<float>(other.objectInterception);
     if (!other.isSpectating && !notHearableInSpectator &&
-        directDistance <= speakVolume + 15.0f) {
+        directDistance <= other.speakRangeMeters + 15.0f) {
         const bool shouldPlayerHear = other.canSpeak && me.canSpeak;
         const float vehicleLoss =
             clampf(me.vehicle.isolation + other.vehicle.isolation, 0.0f, 0.99f);
@@ -784,15 +795,16 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
         float gain;
         if (shouldPlayerHear) {
             if (vehicleLoss < 0.01f || isInSameVehicle) {
-                gain = volumeAttenuation(directDistance, true, speakVolume);
+                gain = volumeAttenuation(directDistance, true, other.speakRangeMeters);
             } else {
-                gain = volumeAttenuation(directDistance, true, speakVolume, 1.0f - vehicleLoss) *
+                gain = volumeAttenuation(directDistance, true, other.speakRangeMeters,
+                                         1.0f - vehicleLoss) *
                        std::pow(1.0f - vehicleLoss, 1.2f);
             }
         } else {
             // "cannot speak" (underwater / gas mask): heavily muffled but loud,
             // the 100 Hz low pass of the original lives in the client.
-            gain = volumeAttenuation(directDistance, false, speakVolume) * kCantSpeakGain;
+            gain = volumeAttenuation(directDistance, false, other.speakRangeMeters) * kCantSpeakGain;
         }
         gain *= other.voiceVolumeMultiplier;
 

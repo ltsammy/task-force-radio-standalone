@@ -47,6 +47,12 @@ struct RemoteClient {
     VehicleDesc vehicle;
     int terrainInterception = 0;
     float voiceVolumeMultiplier = 1.0f;
+    // This unit's own direct-speech range in meters (whisper/normal/yelling) -- POS's additive
+    // 15th token (docs/protocol-extension-legacy.md). The audibility solver uses THIS, not the
+    // local listener's own speakVolume, matching the original TS3 plugin's clientData->voiceVolume
+    // (old/ts/src/plugin.cpp). Defaults to TFAR_VOLUME_NORMAL's value for third-party callers still
+    // on the 14-token legacy POS format.
+    float speakRangeMeters = 20.0f;
     int objectInterception = 0;
     bool isSpectating = false;
     bool isEnemyToPlayer = false;
