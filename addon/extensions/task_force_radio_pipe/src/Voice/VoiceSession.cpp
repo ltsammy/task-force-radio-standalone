@@ -25,6 +25,11 @@ void VoiceSession::start() {
     callbacks.onRemoteJoined = [this](uint32_t sessionId, const std::string& uid,
                                       const std::string& /*name*/) {
         m_playback.addSource(sessionId, uid);
+        // Until Phase 4 wires State's per-tick solver output in, default every source to fully
+        // audible (unity gain, centered, no radio effect) rather than the RemoteVoiceSource
+        // default of muted=true -- keeps this phase's 2-instance test harness actually producing
+        // sound end to end, same as Phase 2's stub behavior.
+        m_playback.setSourceState(sessionId, RemoteSourceState{1.0f, 0.0f, false, SourceEffect::Direct, 0.0f});
     };
     callbacks.onRemoteLeft = [this](uint32_t sessionId) { m_playback.removeSource(sessionId); };
     callbacks.onRadioTx = [](uint32_t /*senderSessionId*/, bool /*active*/, const std::string&,

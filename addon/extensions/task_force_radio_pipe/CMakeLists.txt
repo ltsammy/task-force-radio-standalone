@@ -61,6 +61,11 @@ set(TFRS_SOURCES
     src/Version.h
     src/Voice/AudioDeviceUtil.cpp
     src/Voice/AudioDeviceUtil.h
+    src/Voice/Dsp/BiquadFilter.cpp
+    src/Voice/Dsp/BiquadFilter.h
+    src/Voice/Dsp/Panning.h
+    src/Voice/Dsp/RadioEffectChain.cpp
+    src/Voice/Dsp/RadioEffectChain.h
     src/Voice/OpusCodec.cpp
     src/Voice/OpusCodec.h
     src/Voice/PlaybackMixer.cpp

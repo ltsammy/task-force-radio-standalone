@@ -3,14 +3,24 @@
 #include <algorithm>
 #include <cstring>
 
+#include "Dsp/Panning.h"
+
 namespace tfrs {
 namespace voice {
 
 RemoteVoiceSource::RemoteVoiceSource(uint32_t sessionId, std::string uid)
     : m_sessionId(sessionId), m_uid(std::move(uid)) {
     m_decodedShorts.resize(static_cast<size_t>(OpusFormat::kFrameSamples));
+    m_monoFrame.resize(static_cast<size_t>(OpusFormat::kFrameSamples));
     m_stereoFrame.resize(static_cast<size_t>(OpusFormat::kFrameSamples) * 2);
     m_stereoFramePos = m_stereoFrame.size();  // force a decode on the first render()
+    ensureEffectChain(SourceEffect::Direct);
+}
+
+void RemoteVoiceSource::ensureEffectChain(SourceEffect effect) {
+    if (m_effectChain && effect == m_currentEffect) return;
+    m_currentEffect = effect;
+    m_effectChain = std::make_unique<RadioEffectChain>(effect);
 }
 
 void RemoteVoiceSource::enqueueOpusFrame(const uint8_t* opus, size_t opusLen) {
@@ -72,12 +82,17 @@ bool RemoteVoiceSource::tryProduceNextFrame() {
         m_decoder.decode(opus.data(), static_cast<int>(opus.size()), m_decodedShorts.data());
     }
 
-    // Phase 2 stub: unity gain, center pan, no effect chain -- Phase 3 replaces this block with
-    // RadioEffectChain::process() + Panning::compute(), both driven by `state`.
-    for (size_t i = 0; i < m_decodedShorts.size(); ++i) {
-        const float sample = (m_decodedShorts[i] / 32768.0f) * state.gain;
-        m_stereoFrame[i * 2] = sample;
-        m_stereoFrame[i * 2 + 1] = sample;
+    for (size_t i = 0; i < m_decodedShorts.size(); ++i) m_monoFrame[i] = m_decodedShorts[i] / 32768.0f;
+
+    ensureEffectChain(state.effect);
+    m_effectChain->process(m_monoFrame.data(), m_monoFrame.size(), state.errorLevel);
+
+    const auto [left, right] = Panning::compute(state.azimuthRadians);
+    const float leftGain = left * state.gain;
+    const float rightGain = right * state.gain;
+    for (size_t i = 0; i < m_monoFrame.size(); ++i) {
+        m_stereoFrame[i * 2] = std::clamp(m_monoFrame[i] * leftGain, -1.0f, 1.0f);
+        m_stereoFrame[i * 2 + 1] = std::clamp(m_monoFrame[i] * rightGain, -1.0f, 1.0f);
     }
     return true;
 }
