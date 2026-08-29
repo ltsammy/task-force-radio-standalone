@@ -22,16 +22,17 @@ internal readonly record struct RemoteTxEntry(string Uid, string Freq, int Range
 internal sealed class AddonBridgeServer : IAsyncDisposable
 {
     private const string PipeName = "TFRS_VoiceBridge";
-    // 5s (the original value here) was too tight against real gameplay conditions: SQF's own
-    // fnc_sendFrequencyInfo.sqf throttles FREQ resends to roughly every ~2s even when idle, and a
-    // loading screen or a rough frame can easily exceed 5s of quiet on the pipe without the
-    // extension actually being gone. A too-tight timeout doesn't just misfire once -- every forced
-    // reconnect makes the extension re-run its "am I alive" snapshot on connect
-    // (State::onBridgeConnected), so a spurious disconnect/reconnect loop can itself reintroduce a
-    // stuck transmit-silence override, which is worse than the stale-connection bug this exists to
-    // catch. 20s (matching VoiceNetworkClient's own relay watchdog) still catches a genuinely dead
-    // extension quickly enough to matter, without flapping during normal play.
-    private static readonly TimeSpan BridgeTimeout = TimeSpan.FromSeconds(20);
+    // This used to be 20s, reasoned around avoiding false positives -- but that assumed the
+    // eventual recovery (Disconnect()) actually worked. It didn't: Disconnect() doesn't reliably
+    // cancel an in-flight read, so recovery only ever happened via Dispose() in the fix after that.
+    // Whatever is dropping the underlying pipe in the field (observed: ~10s after a fresh connect,
+    // cause still unconfirmed) means the SERVER holding the dead connection open is what turns a
+    // brief hiccup into a long outage: Windows only allows one instance of this pipe, so the
+    // extension's own fast (500ms) reconnect retries have nowhere to land until this watchdog lets
+    // go. Now that Dispose() actually frees it, a short timeout is what makes recovery fast rather
+    // than something to avoid -- 3s is still comfortably above the ~2s idle cadence of
+    // fnc_sendFrequencyInfo.sqf's throttled resends.
+    private static readonly TimeSpan BridgeTimeout = TimeSpan.FromSeconds(3);
 
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _acceptLoopTask;

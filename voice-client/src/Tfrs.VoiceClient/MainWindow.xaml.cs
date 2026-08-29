@@ -104,7 +104,10 @@ public partial class MainWindow : Window
             SilenceHintText.Visibility = Visibility.Visible;
         });
         _coordinator.ExtensionConnectionChanged += connected => Dispatcher.BeginInvoke(() =>
-            ExtensionStatusText.Text = Loc.Get(connected ? "ExtensionConnected" : "ExtensionNotConnected"));
+        {
+            ExtensionStatusText.Text = Loc.Get(connected ? "ExtensionConnected" : "ExtensionNotConnected");
+            Log(connected ? "Arma addon: connected" : "Arma addon: disconnected");
+        });
         _coordinator.ConnectedCountChanged += count => Dispatcher.BeginInvoke(() =>
             RosterCountText.Text = count > 0 ? Loc.Format("ConnectedCount", count) : "");
         _coordinator.AddonUidUpdated += () => Dispatcher.BeginInvoke(OnAddonUidUpdated);
