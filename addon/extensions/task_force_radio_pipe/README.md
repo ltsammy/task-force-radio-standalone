@@ -92,7 +92,7 @@ that.
 
 | Topic | Status |
 |---|---|
-| **One row per UID** | `computeAudibleUnits()` reports exactly **one** source per speaker: whichever has the highest `gain` (direct / radio / speaker / intercom). Only audible if you hear someone simultaneously via direct speech *and* radio. |
+| **One row per UID** | `computeAudibleUnits()` reports exactly **one** source per speaker. Radio (and a speaker relaying the same transmission) always wins over direct/ambient speech regardless of raw gain -- a radio handset in your ear doesn't compete with nearby chatter on volume, matching real radio comms. Among sources that aren't radio (direct speech vs. vehicle intercom), highest `gain` still wins. |
 | **Resampling** | Linear interpolation (capture-side downmix/resample, playback-side device-rate conversion), not a windowed-sinc resampler — adequate for voice, disclosed as a deliberate simplification (matches this project's existing precedent for e.g. `Panning.h`'s HRTF stand-in). |
 | **No device picker** | Always the OS default communications device (`eMultimedia`, not `eCommunications` — avoids the legacy Recording Devices panel silently pointing elsewhere). |
 | **`stereoMode`** | Parsed and stored from `FREQ` but not currently applied to playback. |

@@ -557,6 +557,11 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
     AudibleUnit best;
     best.nickname = other.nickname;
     bool haveBest = false;
+    // Radio is "in your ear" -- once selected, direct/ambient speech must never displace it just
+    // for having higher raw gain (e.g. someone standing close to you who's also on the radio you're
+    // tuned to). Real radio comms work the same way: the handset in your ear wins over ambient
+    // noise, it doesn't compete with it on volume.
+    bool haveRadioBest = false;
 
     // Spectator rules (plugin.cpp, processVoiceData).
     const bool bothSpectating = me.isSpectating && other.isSpectating;
@@ -647,6 +652,7 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
                     if (unit.gain > 0.0f) {
                         best = unit;
                         haveBest = true;
+                        haveRadioBest = true;
                     }
                 }
             }
@@ -707,9 +713,16 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
                 const float distError = effDist / range;
                 unit.err = clampf(distError < loss ? distError : loss, 0.0f, 1.0f);
 
+                // Not gated on !haveRadioBest, unlike direct speech below: this is comparing two
+                // ways of hearing the SAME radio transmission (direct reception vs. relayed
+                // through a placed speaker), so picking whichever is louder is correct here, not
+                // a priority-order bug. It still needs to SET haveRadioBest when it wins, though,
+                // for the same reason direct radio reception does -- a speaker relaying a radio
+                // transmission is still "radio audio", not ambient noise, once it wins here.
                 if (unit.gain > 0.0f && (!haveBest || unit.gain > best.gain)) {
                     best = unit;
                     haveBest = true;
+                    haveRadioBest = true;
                 }
             }
         }
@@ -789,7 +802,7 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
         unit.gain = gain;
         unit.az = azimuthTo(myPos, me.viewDirection, hisPos);
         unit.err = 0.0f;
-        if (unit.gain > 0.0f && (!haveBest || unit.gain > best.gain)) {
+        if (unit.gain > 0.0f && !haveRadioBest && (!haveBest || unit.gain > best.gain)) {
             best = unit;
             haveBest = true;
         }
