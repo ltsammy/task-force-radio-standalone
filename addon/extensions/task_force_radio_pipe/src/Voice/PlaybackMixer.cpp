@@ -54,6 +54,11 @@ void PlaybackMixer::addSource(uint32_t sessionId, const std::string& uid) {
         source->setState(RemoteSourceState{1.0f, 0.0f, false, SourceEffect::Direct, 0.0f});
     }
     m_sources.emplace(sessionId, std::move(source));
+    // Diagnostic-only: the voice connection deliberately survives Arma mission transitions, so
+    // "left the server" doesn't necessarily mean zero remote sources -- this pins down whether
+    // a reported audio issue lines up with an actually-active source, or with none at all.
+    logLine("playback: source added, sessionId=" + std::to_string(sessionId) +
+           " (active sources now " + std::to_string(m_sources.size()) + ")");
 }
 
 void PlaybackMixer::setSourceState(uint32_t sessionId, const RemoteSourceState& state) {
@@ -71,11 +76,17 @@ void PlaybackMixer::enqueueOpusFrame(uint32_t sessionId, const uint8_t* opus, si
 void PlaybackMixer::removeSource(uint32_t sessionId) {
     std::lock_guard<std::mutex> lock(m_sourcesMutex);
     m_sources.erase(sessionId);
+    logLine("playback: source removed, sessionId=" + std::to_string(sessionId) +
+           " (active sources now " + std::to_string(m_sources.size()) + ")");
 }
 
 void PlaybackMixer::removeAllSources() {
     std::lock_guard<std::mutex> lock(m_sourcesMutex);
+    const size_t hadCount = m_sources.size();
     m_sources.clear();
+    if (hadCount > 0) {
+        logLine("playback: all " + std::to_string(hadCount) + " source(s) removed (disconnected)");
+    }
 }
 
 void PlaybackMixer::triggerRemoteBeep(uint32_t sessionId, const std::string& subtype, bool start) {
@@ -132,6 +143,23 @@ void PlaybackMixer::generateChunkLocked() {
         // isn't re-clamped" gap (each source is already clamped pre-mix, the sum wasn't).
         sample = sample / (1.0f + std::fabs(sample));
         if (muted) sample = 0.0f;
+    }
+
+    // Diagnostic-only: a live report of audible "buzzing" persisting after leaving the mission
+    // (zero RemoteVoiceSources -- no remote/network audio possible) and only stopping when Arma
+    // fully closes. If this render path is somehow the source, a non-silent mix with no active
+    // sources and no local beep playing is the direct signature of it; if it never fires despite
+    // the buzz still happening, that rules this whole path out instead. Throttled to ~once/second
+    // (this runs every 20ms) so a minutes-long occurrence doesn't flood the log.
+    if (m_sources.empty() && m_localBeepPos >= m_localBeepTotal && !muted) {
+        float peak = 0.0f;
+        for (const float sample : mix) peak = std::max(peak, std::fabs(sample));
+        if (peak > 0.001f && (++m_phantomAudioLogCounter % 50) == 1) {
+            logLine("playback: non-silent mix (peak=" + std::to_string(peak) +
+                   ") with zero active sources and no beep playing -- possible phantom audio");
+        }
+    } else {
+        m_phantomAudioLogCounter = 0;
     }
 
     m_mixed48k.insert(m_mixed48k.end(), mix.begin(), mix.end());

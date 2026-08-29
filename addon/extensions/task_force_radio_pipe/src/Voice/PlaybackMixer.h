@@ -92,6 +92,14 @@ private:
     // Render-thread-only (single caller: the WASAPI render callback) -- no synchronization needed.
     std::vector<float> m_mixed48k;    // interleaved stereo, accumulating ahead of the resampler
     double m_resampleCursor = 0.0;    // fractional read position into m_mixed48k, in STEREO FRAMES
+
+    // Diagnostic-only (Log.h): a live report of audible "buzzing" that persists even after
+    // leaving the mission (so with zero active RemoteVoiceSources, ruling out remote/network
+    // audio) and only stops when Arma fully closes -- pointing at this render path rather than
+    // anything connection-dependent. Throttled to roughly once/second while it's actually
+    // happening, not per-chunk (this runs every 20ms; unthrottled, a minutes-long occurrence
+    // would flood the log with thousands of lines).
+    unsigned m_phantomAudioLogCounter = 0;
 };
 
 }  // namespace voice
