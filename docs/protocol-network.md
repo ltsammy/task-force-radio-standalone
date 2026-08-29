@@ -99,6 +99,15 @@ uint32 clientTimestampMs   // arbitrary monotonic client timestamp, only echoed 
 Updates the session's `LastSeenUtc` server-side (timeout protection even without active voice
 transmission). The client should ping every 5-10s.
 
+The server only replies with `Pong` if the sender has a registered session (i.e. completed
+`ConnectRequest`/`ConnectAccept` against *this* server process) — a Ping from an unregistered
+endpoint is silently dropped. This matters after a server restart: the new process has no memory
+of old sessions, but a stale client (still holding what it thinks is an active connection from
+before the restart) keeps pinging anyway. If the server answered those unconditionally, the
+client's own connection-loss watchdog (see `ConnectionLostUnexpectedly`/`WatchdogLoopAsync`
+client-side) would see a Pong and conclude the connection is still fine — never noticing the
+restart, staying "connected" with a stale roster and client count, and never reconnecting.
+
 ### 6 — Pong (Server → Client)
 
 ```

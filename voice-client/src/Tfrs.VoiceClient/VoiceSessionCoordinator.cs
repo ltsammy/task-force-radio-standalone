@@ -62,6 +62,17 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     /// (re)connecting under the corrected identity.</summary>
     public event Action? AddonUidUpdated;
 
+    /// <summary>The Arma extension's transmitOverride, forwarded for logging/diagnostics — see
+    /// docs/protocol-ipc-bridge.md's "local" message. `false` blocks ALL transmission (including
+    /// Always-On); `true` forces it regardless of mode; `null` clears the override.</summary>
+    public event Action<bool?>? AddonOverrideChanged;
+
+    /// <summary>Fires only for a connection loss the watchdog detected on its own (server
+    /// crashed/restarted/network cut) — never for a user-initiated Disconnect. MainWindow uses
+    /// this to retry automatically instead of leaving the player stuck on a dead connection until
+    /// they notice and click Connect again.</summary>
+    public event Action? ConnectionLostUnexpectedly;
+
     public VoiceSessionCoordinator(AppSettings settings)
     {
         Settings = settings;
@@ -79,7 +90,12 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
         // (server timeout/crash — see VoiceNetworkClient.WatchdogLoopAsync) — either way, local
         // state (mic, playback devices, per-session sources, roster) must be torn down the same
         // way, or a reconnect can inherit stale RemoteVoiceSource objects/state from before.
-        _network.Disconnected += cause => { ConnectionStateChanged?.Invoke(false); _ = TeardownLocalStateAsync(); };
+        _network.Disconnected += cause =>
+        {
+            ConnectionStateChanged?.Invoke(false);
+            _ = TeardownLocalStateAsync();
+            if (cause == DisconnectCause.ConnectionLost) ConnectionLostUnexpectedly?.Invoke();
+        };
         _network.VoiceFrameReceived += OnVoiceFrameReceived;
         _network.RemoteJoined += OnRemoteJoined;
         _network.RemoteLeft += OnRemoteLeft;
@@ -96,7 +112,10 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
         _playback.LevelMeasured += l => SpeakerLevelMeasured?.Invoke(l);
 
         _bridge.UnitsReceived += OnUnitsReceived;
-        _bridge.LocalOverrideReceived += v => _transmit.AddonTransmitOverride = v;
+        // AddonTransmitOverride == false silently blocks transmission entirely, including
+        // Always-On -- this was previously invisible from the outside, making "always-on doesn't
+        // transmit" undiagnosable without a debugger. Surfaced so it shows up in the log instead.
+        _bridge.LocalOverrideReceived += v => { _transmit.AddonTransmitOverride = v; AddonOverrideChanged?.Invoke(v); };
         _bridge.LocalUidReceived += OnLocalUidReceived;
         _bridge.LocalTxChanged += state => _network.SendRadioTx(
             state.Active, state.Freq, (ushort)Math.Clamp(state.Range, 0, ushort.MaxValue), state.Sub);

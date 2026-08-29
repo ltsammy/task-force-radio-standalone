@@ -191,8 +191,15 @@ internal sealed class RelayServer : IAsyncDisposable
     private void HandlePing(ref PacketReader reader, IPEndPoint remote)
     {
         uint timestamp = reader.ReadUInt32();
-        if (_sessionsByEndPoint.TryGetValue(remote, out var session))
-            session.LastSeenUtc = DateTime.UtcNow;
+        // Used to Pong unconditionally, even for a sender with no registered session. That
+        // defeated the client's own connection-loss watchdog after a server restart: the new
+        // process has no memory of the old session, but kept happily replying to its stray pings
+        // anyway, which the client's "any packet = still alive" check took as proof the connection
+        // was fine -- so it never noticed the restart, stayed "connected" with a stale roster, and
+        // never reconnected. A stale client with no session must get silence here so its own
+        // ping-timeout logic can do its job instead.
+        if (!_sessionsByEndPoint.TryGetValue(remote, out var session)) return;
+        session.LastSeenUtc = DateTime.UtcNow;
 
         Span<byte> outBuf = stackalloc byte[6];
         var writer = new PacketWriter(outBuf);

@@ -29,6 +29,7 @@ public partial class MainWindow : Window
     // deferred and replayed once the in-flight attempt finishes.
     private bool _connecting;
     private bool _identityChangedDuringConnect;
+    private CancellationTokenSource? _autoReconnectCts;
 
     /// <summary>Called from a background audio thread — deliberately not synchronized (a torn
     /// read/write here just means one throttle window is occasionally a few ms off, which is
@@ -104,6 +105,17 @@ public partial class MainWindow : Window
         _coordinator.ConnectedCountChanged += count => Dispatcher.BeginInvoke(() =>
             RosterCountText.Text = count > 0 ? Loc.Format("ConnectedCount", count) : "");
         _coordinator.AddonUidUpdated += () => Dispatcher.BeginInvoke(OnAddonUidUpdated);
+        _coordinator.AddonOverrideChanged += v => Dispatcher.BeginInvoke(() => Log(v switch
+        {
+            false => "!!! Addon is forcing SILENCE (transmit override) — blocks ALL transmission, including Always-On.",
+            true => "Addon is forcing transmission (PTT override) regardless of mode.",
+            null => "Addon transmit override cleared — normal PTT/VAD/Always-On applies.",
+        }));
+        _coordinator.ConnectionLostUnexpectedly += () => Dispatcher.BeginInvoke(() =>
+        {
+            Log("Connection to server lost — retrying...");
+            _ = AutoReconnectLoopAsync();
+        });
 
         _pttPoller.HeldChanged += held => _coordinator?.SetPttHeld(held);
         _pttPoller.SetKey(_settings.PttKey);
@@ -129,6 +141,7 @@ public partial class MainWindow : Window
 
     private async void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        _autoReconnectCts?.Cancel();
         _settings.ServerHost = HostTextBox.Text;
         if (int.TryParse(PortTextBox.Text, out int port)) _settings.ServerPort = port;
         _settings.ServerPassword = PasswordBox.Password;
@@ -167,7 +180,38 @@ public partial class MainWindow : Window
         _speakerMutePoller.SetKey(_settings.SpeakerMuteKey);
     }
 
-    private async void ConnectButton_Click(object sender, RoutedEventArgs e) => await ConnectAsync();
+    private async void ConnectButton_Click(object sender, RoutedEventArgs e)
+    {
+        _autoReconnectCts?.Cancel(); // a manual click takes priority over any in-progress auto-retry
+        await ConnectAsync();
+    }
+
+    /// <summary>Retries every 5s until connected, the user disconnects/reconnects manually, or the
+    /// window closes — started only after ConnectionLostUnexpectedly (never for a user-initiated
+    /// disconnect). Without this, a brief server restart otherwise requires the player to notice
+    /// they've gone silent and click Connect themselves.</summary>
+    private async Task AutoReconnectLoopAsync()
+    {
+        _autoReconnectCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _autoReconnectCts = cts;
+        var token = cts.Token;
+
+        while (!token.IsCancellationRequested && _coordinator is not null && !_coordinator.IsConnected)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            if (token.IsCancellationRequested) return;
+            if (string.IsNullOrWhiteSpace(HostTextBox.Text)) return;
+            await ConnectAsync();
+        }
+    }
 
     private async Task ConnectAsync()
     {
@@ -235,6 +279,7 @@ public partial class MainWindow : Window
 
     private async void DisconnectButton_Click(object sender, RoutedEventArgs e)
     {
+        _autoReconnectCts?.Cancel();
         if (_coordinator is null) return;
         await _coordinator.DisconnectAsync();
         Log(Loc.Get("Disconnected"));
