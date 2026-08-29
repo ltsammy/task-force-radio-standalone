@@ -314,6 +314,77 @@
     1,
     {["serious_channelPassword", _this] call TFAR_fnc_setPluginSetting; ["serious_channelName", _this] call TFAR_fnc_setPluginSetting;}
 ] call CBA_Settings_fnc_init;
+
+// Voice port phase 6: the native voice path's own settings (src/Voice/VoiceSession), replacing
+// the old standalone client's settings.json + WPF settings window. Server host/port/password are
+// GLOBAL (isGlobal=1, same as the Teamspeak_Channel_* settings above) -- every player connects to
+// the same voice-server relay, so these must be identical for everyone, unlike a per-client
+// preference. No device-selection setting: CBA_Settings' LIST type is static-only (no SQF device-
+// enumeration API exists to populate it dynamically), so the native path always uses the OS
+// default communications device instead of exposing a picker.
+[
+    "TFAR_Voice_ServerHost",
+    "EDITBOX",
+    [ELSTRING(settings,voice_serverHost), ELSTRING(settings,voice_serverHost_desc)],
+    localize ELSTRING(settings,global),
+    "",
+    1,
+    {["voice_serverHost", _this] call TFAR_fnc_setPluginSetting;}
+] call CBA_Settings_fnc_init;
+[
+    "TFAR_Voice_ServerPort",
+    "EDITBOX",
+    [ELSTRING(settings,voice_serverPort), ELSTRING(settings,voice_serverPort_desc)],
+    localize ELSTRING(settings,global),
+    "9987",
+    1,
+    {["voice_serverPort", _this] call TFAR_fnc_setPluginSetting;}
+] call CBA_Settings_fnc_init;
+[
+    "TFAR_Voice_ServerPassword",
+    "EDITBOX",
+    [ELSTRING(settings,voice_serverPassword), ELSTRING(settings,voice_serverPassword_desc)],
+    localize ELSTRING(settings,global),
+    ["", true],
+    1,
+    {["voice_serverPassword", _this] call TFAR_fnc_setPluginSetting;}
+] call CBA_Settings_fnc_init;
+[
+    "TFAR_Voice_MicVolume",
+    "SLIDER",
+    [ELSTRING(settings,voice_micVolume), ELSTRING(settings,voice_micVolume_desc)],
+    localize ELSTRING(settings,clientside),
+    [0, 2, 1, 2],
+    2,
+    {["voice_micVolume", _this] call TFAR_fnc_setPluginSetting;}
+] call CBA_Settings_fnc_init;
+[
+    "TFAR_Voice_SpeakerVolume",
+    "SLIDER",
+    [ELSTRING(settings,voice_speakerVolume), ELSTRING(settings,voice_speakerVolume_desc)],
+    localize ELSTRING(settings,clientside),
+    [0, 2, 1, 2],
+    2,
+    {["voice_speakerVolume", _this] call TFAR_fnc_setPluginSetting;}
+] call CBA_Settings_fnc_init;
+[
+    "TFAR_Voice_VadThreshold",
+    "SLIDER",
+    [ELSTRING(settings,voice_vadThreshold), ELSTRING(settings,voice_vadThreshold_desc)],
+    localize ELSTRING(settings,clientside),
+    [0.001, 0.3, 0.01, 3],
+    2,
+    {["voice_vadThreshold", _this] call TFAR_fnc_setPluginSetting;}
+] call CBA_Settings_fnc_init;
+[
+    "TFAR_Voice_TransmitMode",
+    "LIST",
+    [ELSTRING(settings,voice_transmitMode), ELSTRING(settings,voice_transmitMode_desc)],
+    localize ELSTRING(settings,clientside),
+    [[0, 1, 2], [localize ELSTRING(settings,voice_transmitMode_ptt), localize ELSTRING(settings,voice_transmitMode_vad), localize ELSTRING(settings,voice_transmitMode_always)], 1],
+    2,
+    {["voice_transmitMode", TFAR_Voice_TransmitMode] call TFAR_fnc_setPluginSetting;}
+] call CBA_Settings_fnc_init;
 [
     "TFAR_SameSRFrequenciesForSide",
     "CHECKBOX",

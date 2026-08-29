@@ -828,6 +828,91 @@
                 <Czech>Při sledování ztišit ostatní diváky zatímco lze poslouchat hráče kteří jsou stále živí</Czech>
                 <Russian>Не слышать во время наблюдения других наблюдателей, но слышать только живых игроков</Russian>
             </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_serverHost">
+                <Original>Voice Server Address</Original>
+                <English>Voice Server Address</English>
+                <German>Voice-Server-Adresse</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_serverHost_desc">
+                <Original>Hostname or IP of the Tfrs.VoiceServer relay everyone in this mission connects to. Must be the same for every player.</Original>
+                <English>Hostname or IP of the Tfrs.VoiceServer relay everyone in this mission connects to. Must be the same for every player.</English>
+                <German>Hostname oder IP des Tfrs.VoiceServer-Relays, mit dem sich alle in dieser Mission verbinden. Muss bei jedem Spieler gleich sein.</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_serverPort">
+                <Original>Voice Server Port</Original>
+                <English>Voice Server Port</English>
+                <German>Voice-Server-Port</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_serverPort_desc">
+                <Original>UDP port of the voice server. Must be the same for every player.</Original>
+                <English>UDP port of the voice server. Must be the same for every player.</English>
+                <German>UDP-Port des Voice-Servers. Muss bei jedem Spieler gleich sein.</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_serverPassword">
+                <Original>Voice Server Password</Original>
+                <English>Voice Server Password</English>
+                <German>Voice-Server-Passwort</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_serverPassword_desc">
+                <Original>Password for the voice server, if it requires one. Must be the same for every player.</Original>
+                <English>Password for the voice server, if it requires one. Must be the same for every player.</English>
+                <German>Passwort für den Voice-Server, falls eines erforderlich ist. Muss bei jedem Spieler gleich sein.</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_micVolume">
+                <Original>Microphone Volume</Original>
+                <English>Microphone Volume</English>
+                <German>Mikrofonlautstärke</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_micVolume_desc">
+                <Original>Extra gain applied to your microphone before it's sent, on top of automatic gain control.</Original>
+                <English>Extra gain applied to your microphone before it's sent, on top of automatic gain control.</English>
+                <German>Zusätzliche Verstärkung deines Mikrofons vor dem Senden, zusätzlich zur automatischen Verstärkungsregelung.</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_speakerVolume">
+                <Original>Speaker Volume</Original>
+                <English>Speaker Volume</English>
+                <German>Lautsprecherlautstärke</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_speakerVolume_desc">
+                <Original>Master volume for everything you hear from other players.</Original>
+                <English>Master volume for everything you hear from other players.</English>
+                <German>Gesamtlautstärke für alles, was du von anderen Spielern hörst.</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_vadThreshold">
+                <Original>Voice Activation Sensitivity</Original>
+                <English>Voice Activation Sensitivity</English>
+                <German>Empfindlichkeit der Sprachaktivierung</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_vadThreshold_desc">
+                <Original>How loud you need to be for Voice Activation mode to start transmitting. Lower = more sensitive. Only used in Voice Activation mode.</Original>
+                <English>How loud you need to be for Voice Activation mode to start transmitting. Lower = more sensitive. Only used in Voice Activation mode.</English>
+                <German>Wie laut du sein musst, damit die Sprachaktivierung zu senden beginnt. Niedriger = empfindlicher. Nur im Sprachaktivierungs-Modus relevant.</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_transmitMode">
+                <Original>Transmit Mode</Original>
+                <English>Transmit Mode</English>
+                <German>Sende-Modus</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_transmitMode_desc">
+                <Original>How your microphone decides when to transmit direct speech (independent of holding a radio tangent).</Original>
+                <English>How your microphone decides when to transmit direct speech (independent of holding a radio tangent).</English>
+                <German>Wie dein Mikrofon entscheidet, wann direkte Sprache gesendet wird (unabhängig vom Halten einer Funktaste).</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_transmitMode_ptt">
+                <Original>Push To Talk</Original>
+                <English>Push To Talk</English>
+                <German>Sprechtaste</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_transmitMode_vad">
+                <Original>Voice Activation</Original>
+                <English>Voice Activation</English>
+                <German>Sprachaktivierung</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_transmitMode_always">
+                <Original>Always On</Original>
+                <English>Always On</English>
+                <German>Immer aktiv</German>
+            </Key>
             <Key ID="STR_TFAR_SETTINGS_noTSNotConnectedHint">
                 <English>Hide "Not connected" message</English>
                 <German>Verstecke "Not connected" message</German>

@@ -40,4 +40,13 @@
 ["allowDebugging", missionNamespace getVariable ["TFAR_allowDebugging", false]] call TFAR_fnc_setPluginSetting;
 ["muteSpectators", missionNamespace getVariable ["TFAR_muteSpectators", false]] call TFAR_fnc_setPluginSetting;
 
+// Voice port phase 6: native voice path settings (src/Voice/VoiceSession).
+["voice_serverHost", missionNamespace getVariable ["TFAR_Voice_ServerHost", ""]] call TFAR_fnc_setPluginSetting;
+["voice_serverPort", missionNamespace getVariable ["TFAR_Voice_ServerPort", "9987"]] call TFAR_fnc_setPluginSetting;
+["voice_serverPassword", missionNamespace getVariable ["TFAR_Voice_ServerPassword", ""]] call TFAR_fnc_setPluginSetting;
+["voice_micVolume", missionNamespace getVariable ["TFAR_Voice_MicVolume", 1]] call TFAR_fnc_setPluginSetting;
+["voice_speakerVolume", missionNamespace getVariable ["TFAR_Voice_SpeakerVolume", 1]] call TFAR_fnc_setPluginSetting;
+["voice_vadThreshold", missionNamespace getVariable ["TFAR_Voice_VadThreshold", 0.01]] call TFAR_fnc_setPluginSetting;
+["voice_transmitMode", missionNamespace getVariable ["TFAR_Voice_TransmitMode", 1]] call TFAR_fnc_setPluginSetting;
+
 //If you add things that player could change in Mission call this PFH or tell players in WIKI

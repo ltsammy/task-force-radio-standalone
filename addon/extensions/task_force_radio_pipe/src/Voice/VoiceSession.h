@@ -70,6 +70,12 @@ public:
     void toggleMicMute() { m_transmit.setMicMuted(!m_transmit.isMicMuted()); }
     void toggleSpeakerMute() { m_playback.setMuted(!m_playback.isMuted()); }
 
+    // -- CBA settings passthrough (see fnc_initCBASettings.sqf's TFAR_Voice_* settings) ----------
+    void setTransmitMode(TransmitMode mode) { m_transmit.setMode(mode); }
+    void setMicVolume(float volume) { m_transmit.setMicVolume(volume); }
+    void setSpeakerVolume(float volume) { m_playback.setMasterVolume(volume); }
+    void setVadThreshold(float threshold) { m_transmit.setVadThreshold(threshold); }
+
     // -- per-tick inputs from Extension.cpp, driven by State ----------------
 
     // Applies State::computeAudibleUnits()'s output to matching playback sources (uid -> sessionId

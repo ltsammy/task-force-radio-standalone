@@ -156,6 +156,12 @@ public:
     // Drives TS_INFO PING -- true once VoiceSession reports the voice-server connection as up.
     void setVoiceConnected(bool connected);
 
+    // Public, self-locking readers for the voice_-prefixed CBA settings (unlike the private
+    // configBool/configFloat below, which assume m_mutex is already held by an internal solver
+    // caller) -- Extension.cpp's tick reads these to drive VoiceSession every cycle.
+    std::string voiceConfigString(const char* key, const std::string& fallback) const;
+    float voiceConfigFloat(const char* key, float fallback) const;
+
     // What WE are currently transmitting, for VoiceSession to relay via RadioTxUpdate every tick
     // (unconditionally, not just on change -- the receiving side's 1.5s expiry depends on a steady
     // refresh stream to self-heal a single dropped UDP packet). freq/range/subtype are meaningless

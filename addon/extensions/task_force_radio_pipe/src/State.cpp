@@ -31,7 +31,12 @@ const char* const kValidConfigKeys[] = {
     "spectatorCanHearFriendlies", "tangentReleaseDelay", "moveWhileTabbedOut",
     "intercomDucking",     "minimumPluginVersion",   "objectInterceptionStrength",
     "voiceCone",           "allowDebugging",         "noAutomoveSpectator",
-    "disableAutomaticMute", "muteSpectators"};
+    "disableAutomaticMute", "muteSpectators",
+    // Native voice port (src/Voice/VoiceSession), voice_-prefixed to keep them visually distinct
+    // from the legacy keys above (which mix snake_case/camelCase inconsistently already).
+    "voice_serverHost",    "voice_serverPort",       "voice_serverPassword",
+    "voice_micVolume",     "voice_speakerVolume",    "voice_vadThreshold",
+    "voice_transmitMode"};
 
 bool isValidConfigKey(const std::string& key) {
     for (size_t i = 0; i < sizeof(kValidConfigKeys) / sizeof(kValidConfigKeys[0]); ++i) {
@@ -469,6 +474,19 @@ bool State::configBool(const char* key, bool fallback) const {
 }
 
 float State::configFloat(const char* key, float fallback) const {
+    std::unordered_map<std::string, std::string>::const_iterator it = m_config.find(key);
+    if (it == m_config.end()) return fallback;
+    return parseArmaNumber(it->second);
+}
+
+std::string State::voiceConfigString(const char* key, const std::string& fallback) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::unordered_map<std::string, std::string>::const_iterator it = m_config.find(key);
+    return it != m_config.end() ? it->second : fallback;
+}
+
+float State::voiceConfigFloat(const char* key, float fallback) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     std::unordered_map<std::string, std::string>::const_iterator it = m_config.find(key);
     if (it == m_config.end()) return fallback;
     return parseArmaNumber(it->second);

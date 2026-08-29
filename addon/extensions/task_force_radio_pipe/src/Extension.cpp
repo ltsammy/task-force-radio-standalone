@@ -55,9 +55,32 @@ tfrs::voice::SourceEffect parseSourceEffect(const char* fx) {
     return SourceEffect::Direct;  // "direct", or anything unrecognized
 }
 
+// Matches the numeric values TFAR_Voice_TransmitMode's CBA LIST setting is defined with in
+// fnc_initCBASettings.sqf ([[0, 1, 2], [...], 1]).
+tfrs::voice::TransmitMode parseTransmitMode(float value) {
+    using tfrs::voice::TransmitMode;
+    if (value < 0.5f) return TransmitMode::PushToTalk;
+    if (value < 1.5f) return TransmitMode::VoiceActivation;
+    return TransmitMode::AlwaysOn;
+}
+
 void senderMain() {
     while (g_senderRunning.load()) {
         g_state->setVoiceConnected(g_voice->isConnected());
+
+        // CBA settings (fnc_initCBASettings.sqf's TFAR_Voice_* settings, relayed via SETCFG same
+        // as every other TFAR setting) -> VoiceSession. Cheap enough to just re-apply every tick
+        // rather than diffing for a change; setServer in particular relies on this: it's how a
+        // live host/port/password edit gets picked up and triggers an automatic reconnect (see
+        // VoiceNetworkClient::threadMain's configChangedLocked check).
+        g_voice->setServer(g_state->voiceConfigString("voice_serverHost", ""),
+                           static_cast<uint16_t>(g_state->voiceConfigFloat("voice_serverPort", 9987.0f)),
+                           g_state->voiceConfigString("voice_serverPassword", ""));
+        g_voice->setMicVolume(g_state->voiceConfigFloat("voice_micVolume", 1.0f));
+        g_voice->setSpeakerVolume(g_state->voiceConfigFloat("voice_speakerVolume", 1.0f));
+        g_voice->setVadThreshold(g_state->voiceConfigFloat("voice_vadThreshold", 0.01f));
+        g_voice->setTransmitMode(parseTransmitMode(g_state->voiceConfigFloat("voice_transmitMode", 1.0f)));
+
         g_state->setLocalTransmitting(g_voice->isTransmitting());
         // Idempotent to call every tick even once resolved -- VoiceNetworkClient's setIdentity is
         // a cheap mutex-guarded assignment, and this is what lets the placeholder identity

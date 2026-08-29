@@ -91,10 +91,11 @@ void VoiceSession::start() {
         m_network.sendVoiceFrame(opus, len, isLast);
     });
 
-    // Placeholder connect target until Phase 6 wires CBA-settings-driven values (ServerHost/
-    // ServerPort/ServerPassword) in via setServer(); Extension.cpp's tick calls setIdentity() with
-    // State::myUid() once it's known, superseding this placeholder identity.
-    setServer("127.0.0.1", 9987, "");
+    // No setServer() call here: m_network starts with an empty host/port-0 config, which
+    // VoiceNetworkClient::threadMain() correctly treats as "not configured yet, wait" rather than
+    // attempting to connect anywhere -- Extension.cpp's tick calls setServer() every cycle with
+    // State's real voice_serverHost/Port/Password CBA settings (see fnc_initCBASettings.sqf) the
+    // moment they're known. setIdentity() gets the same treatment with State::myUid()/myNickname().
     setIdentity("0", "TFRS");
 }
 
