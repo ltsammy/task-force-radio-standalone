@@ -22,10 +22,16 @@ internal readonly record struct RemoteTxEntry(string Uid, string Freq, int Range
 internal sealed class AddonBridgeServer : IAsyncDisposable
 {
     private const string PipeName = "TFRS_VoiceBridge";
-    // The extension sends "units" "practically every simulation tick" per docs/protocol-ipc-
-    // bridge.md, so several seconds of total silence is already a generous margin against a brief
-    // Arma hitch -- it means the extension is gone, not just running a slow frame.
-    private static readonly TimeSpan BridgeTimeout = TimeSpan.FromSeconds(5);
+    // 5s (the original value here) was too tight against real gameplay conditions: SQF's own
+    // fnc_sendFrequencyInfo.sqf throttles FREQ resends to roughly every ~2s even when idle, and a
+    // loading screen or a rough frame can easily exceed 5s of quiet on the pipe without the
+    // extension actually being gone. A too-tight timeout doesn't just misfire once -- every forced
+    // reconnect makes the extension re-run its "am I alive" snapshot on connect
+    // (State::onBridgeConnected), so a spurious disconnect/reconnect loop can itself reintroduce a
+    // stuck transmit-silence override, which is worse than the stale-connection bug this exists to
+    // catch. 20s (matching VoiceNetworkClient's own relay watchdog) still catches a genuinely dead
+    // extension quickly enough to matter, without flapping during normal play.
+    private static readonly TimeSpan BridgeTimeout = TimeSpan.FromSeconds(20);
 
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _acceptLoopTask;

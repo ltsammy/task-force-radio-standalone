@@ -13,6 +13,8 @@ public partial class SettingsWindow : Window
     private readonly VoiceSessionCoordinator _coordinator;
     private readonly Action _onHotkeysChanged;
     private readonly Action<float> _micLevelHandler;
+    private readonly ObservableCollection<string> _logEntries;
+    private readonly System.Collections.Specialized.NotifyCollectionChangedEventHandler _logChangedHandler;
 
     private enum BindTarget { None, Ptt, MicMute, SpeakerMute }
     private BindTarget _awaitingBind = BindTarget.None;
@@ -42,8 +44,14 @@ public partial class SettingsWindow : Window
         _settings = settings;
         _coordinator = coordinator;
         _onHotkeysChanged = onHotkeysChanged;
+        _logEntries = logEntries;
         InitializeComponent();
-        LogListBox.ItemsSource = logEntries;
+        // A plain ListBox never supported real copy (no Ctrl+C, no select-all) -- a read-only
+        // TextBox gets that for free, so it's kept in sync by re-joining the whole collection on
+        // every change instead of binding ItemsSource.
+        _logChangedHandler = (_, _) => RefreshLogText();
+        RefreshLogText();
+        _logEntries.CollectionChanged += _logChangedHandler;
         PreviewKeyDown += SettingsWindow_PreviewKeyDown;
         Loaded += SettingsWindow_Loaded;
         Closed += SettingsWindow_Closed;
@@ -61,8 +69,13 @@ public partial class SettingsWindow : Window
         _coordinator.MicLevelMeasured += _micLevelHandler;
     }
 
-    private void SettingsWindow_Closed(object? sender, EventArgs e) =>
+    private void SettingsWindow_Closed(object? sender, EventArgs e)
+    {
         _coordinator.MicLevelMeasured -= _micLevelHandler;
+        _logEntries.CollectionChanged -= _logChangedHandler;
+    }
+
+    private void RefreshLogText() => LogTextBox.Text = string.Join(Environment.NewLine, _logEntries);
 
     private void SettingsWindow_Loaded(object sender, RoutedEventArgs e)
     {

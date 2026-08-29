@@ -100,7 +100,12 @@
         </GroupBox>
 
         <TextBlock Text="{loc:Loc LogHeader}" FontWeight="SemiBold" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Grid.Row="3" Margin="2,0,0,4" />
-        <ListBox x:Name="LogListBox" Grid.Row="4" Margin="0,0,0,10" />
+        <!-- A plain ListBox only lets you highlight a row, not copy its text (Ctrl+C does
+             nothing, no "select all"). A read-only multi-line TextBox gives normal text
+             selection/copy for free: one line, all of them, or anything in between. -->
+        <TextBox x:Name="LogTextBox" Grid.Row="4" Margin="0,0,0,10" IsReadOnly="true" IsReadOnlyCaretVisible="true"
+                 TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                 FontFamily="Consolas" FontSize="11" />
 
         <Button x:Name="CloseButton" Content="{loc:Loc CloseButton}" Grid.Row="5" Width="120" HorizontalAlignment="Right" Click="CloseButton_Click" />
     </Grid>
