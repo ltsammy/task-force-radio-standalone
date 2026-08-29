@@ -296,25 +296,6 @@
     1,
     {["spectatorCanHearFriendlies", TFAR_spectatorCanHearFriendlies] call TFAR_fnc_setPluginSetting;}
 ] call CBA_Settings_fnc_init;
-[
-    "TFAR_Teamspeak_Channel_Name",
-    "EDITBOX",
-    [ELSTRING(settings,TeamspeakChannel_name), ELSTRING(settings,TeamspeakChannel_name_desc)],
-    localize ELSTRING(settings,global),
-    "TaskForceRadio",
-    1,
-    {["serious_channelName", _this] call TFAR_fnc_setPluginSetting;}
-] call CBA_Settings_fnc_init;
-[
-    "TFAR_Teamspeak_Channel_Password",
-    "EDITBOX",
-    [ELSTRING(settings,TeamspeakChannel_password), ELSTRING(settings,TeamspeakChannel_password_desc)],
-    localize ELSTRING(settings,global),
-    ["123", true],
-    1,
-    {["serious_channelPassword", _this] call TFAR_fnc_setPluginSetting; ["serious_channelName", _this] call TFAR_fnc_setPluginSetting;}
-] call CBA_Settings_fnc_init;
-
 // Voice port phase 6: the native voice path's own settings (src/Voice/VoiceSession), replacing
 // the old standalone client's settings.json + WPF settings window. Server host/port/password are
 // GLOBAL (isGlobal=1, same as the Teamspeak_Channel_* settings above) -- every player connects to

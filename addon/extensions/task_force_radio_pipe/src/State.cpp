@@ -25,8 +25,8 @@ constexpr float kAssumedRadioRange = 3000.0f;
 
 // Config keys accepted by SETCFG (docs/protocol-extension-legacy.md).
 const char* const kValidConfigKeys[] = {
-    "full_duplex",         "addon_version",          "serious_channelName",
-    "serious_channelPassword", "intercomVolume",     "intercomEnabled",
+    "full_duplex",         "addon_version",          "intercomVolume",
+    "intercomEnabled",
     "pluginTimeout",       "headsetLowered",         "spectatorNotHearEnemies",
     "spectatorCanHearFriendlies", "tangentReleaseDelay", "moveWhileTabbedOut",
     "intercomDucking",     "minimumPluginVersion",   "objectInterceptionStrength",

@@ -258,8 +258,6 @@ player addEventHandler ["killed", {
         GVAR(SettingsInitialized)
     },
     {
-        DEPRECATE_VARIABLE(tf_radio_channel_name,TFAR_Teamspeak_Channel_Name);
-        DEPRECATE_VARIABLE(tf_radio_channel_password,TFAR_Teamspeak_Channel_Password);
         [] call DFUNC(sendPluginConfig);
     },
     []
