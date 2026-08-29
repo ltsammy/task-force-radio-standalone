@@ -59,6 +59,24 @@ set(TFRS_SOURCES
     src/Util.cpp
     src/Util.h
     src/Version.h
+    src/Voice/AudioDeviceUtil.cpp
+    src/Voice/AudioDeviceUtil.h
+    src/Voice/OpusCodec.cpp
+    src/Voice/OpusCodec.h
+    src/Voice/PlaybackMixer.cpp
+    src/Voice/PlaybackMixer.h
+    src/Voice/Protocol.cpp
+    src/Voice/Protocol.h
+    src/Voice/RemoteVoiceSource.cpp
+    src/Voice/RemoteVoiceSource.h
+    src/Voice/TransmitController.cpp
+    src/Voice/TransmitController.h
+    src/Voice/VoiceNetworkClient.cpp
+    src/Voice/VoiceNetworkClient.h
+    src/Voice/VoiceSession.cpp
+    src/Voice/VoiceSession.h
+    src/Voice/WasapiCaptureEngine.cpp
+    src/Voice/WasapiCaptureEngine.h
 )
 
 add_library(task_force_radio_pipe SHARED ${TFRS_SOURCES})
@@ -72,7 +90,12 @@ endif()
 set_target_properties(task_force_radio_pipe PROPERTIES PREFIX "")
 
 target_include_directories(task_force_radio_pipe PRIVATE src)
-target_link_libraries(task_force_radio_pipe PRIVATE opus)
+target_link_libraries(task_force_radio_pipe PRIVATE
+    opus
+    Ws2_32    # VoiceNetworkClient's UDP socket (Winsock2)
+    Ole32     # WASAPI device/COM activation (AudioDeviceUtil, WasapiCaptureEngine, PlaybackMixer)
+    Bcrypt    # SHA-256 password hash for the ConnectRequest handshake (CNG, not a vendored dep)
+)
 
 target_compile_definitions(task_force_radio_pipe PRIVATE
     WIN32_LEAN_AND_MEAN

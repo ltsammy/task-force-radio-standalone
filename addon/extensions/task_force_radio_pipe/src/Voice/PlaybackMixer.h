@@ -1,0 +1,82 @@
+// Event-driven WASAPI shared-mode playback: mixes every active RemoteVoiceSource (each internally
+// producing 48kHz stereo), applies master volume + a mute gate + a soft-clip limiter, resamples to
+// the render device's actual native rate, and renders it. Structural port of
+// voice-client/src/Tfrs.VoiceClient/Audio/PlaybackEngine.cs.
+//
+// All source access is by session id through this class, never a raw pointer/reference handed to
+// a caller: RemoteVoiceSource objects are owned by a std::unique_ptr in m_sources, and the render
+// thread calls render() on them while holding the same m_sourcesMutex that guards add/remove --
+// otherwise a concurrent removeSource() (from the network thread, on a ClientLeft) could destroy a
+// source out from under the render thread mid-call.
+//
+// The limiter closes a real gap the C# reference had: each RemoteVoiceSource clamps its own
+// samples pre-mix, but the *summed* mix was never re-clamped, so multiple loud simultaneous
+// sources could clip (see docs/dsp-audio-pipeline.md section 7, which recommends at least this
+// much). A soft-clip curve, not a full attack/release compressor -- the same doc calls a real
+// compressor "a nice-to-have, not a correctness blocker".
+#pragma once
+
+#include <atomic>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <vector>
+
+#include "RemoteVoiceSource.h"
+
+namespace tfrs {
+namespace voice {
+
+class PlaybackMixer {
+public:
+    PlaybackMixer();
+    ~PlaybackMixer();
+    PlaybackMixer(const PlaybackMixer&) = delete;
+    PlaybackMixer& operator=(const PlaybackMixer&) = delete;
+
+    void start();
+    void stop();
+
+    // All no-ops for an unknown sessionId except addSource, which creates it if missing.
+    void addSource(uint32_t sessionId, const std::string& uid);
+    void setSourceState(uint32_t sessionId, const RemoteSourceState& state);
+    void enqueueOpusFrame(uint32_t sessionId, const uint8_t* opus, size_t opusLen);
+    void removeSource(uint32_t sessionId);
+    void removeAllSources();
+
+    // 0..2, matches PlaybackEngine.MasterVolume's clamp range.
+    void setMasterVolume(float volume);
+    void setMuted(bool muted);
+
+    // Mirrors ServerOptions.DebugForceAudible: when true, newly added sources start fully
+    // audible/centered/undistorted. Set by VoiceSession once ConnectAccept reports it.
+    void setDebugForceAudible(bool enabled) { m_debugForceAudible.store(enabled); }
+    bool debugForceAudible() const { return m_debugForceAudible.load(); }
+
+private:
+    void threadMain();
+    // Mixes one more 960-sample (20ms) chunk from every active source into m_mixed48k, applying
+    // master volume, mute gate, and the soft-clip limiter.
+    void generateChunkLocked();
+
+    std::atomic<bool> m_running{false};
+    std::atomic<bool> m_stopRequested{false};
+    std::thread m_thread;
+
+    std::atomic<float> m_masterVolume{1.0f};
+    std::atomic<bool> m_muted{false};
+    std::atomic<bool> m_debugForceAudible{false};
+
+    std::mutex m_sourcesMutex;
+    std::unordered_map<uint32_t, std::unique_ptr<RemoteVoiceSource>> m_sources;
+
+    // Render-thread-only (single caller: the WASAPI render callback) -- no synchronization needed.
+    std::vector<float> m_mixed48k;    // interleaved stereo, accumulating ahead of the resampler
+    double m_resampleCursor = 0.0;    // fractional read position into m_mixed48k, in STEREO FRAMES
+};
+
+}  // namespace voice
+}  // namespace tfrs

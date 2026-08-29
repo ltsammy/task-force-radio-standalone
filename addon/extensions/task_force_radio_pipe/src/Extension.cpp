@@ -15,6 +15,7 @@
 #include "Json.h"
 #include "PipeClient.h"
 #include "State.h"
+#include "Voice/VoiceSession.h"
 
 namespace {
 
@@ -29,6 +30,10 @@ tfrs::State* g_state = nullptr;
 tfrs::PipeClient* g_pipe = nullptr;
 tfrs::CommandProcessor* g_processor = nullptr;
 std::thread* g_senderThread = nullptr;
+// Native voice port (mic capture, Opus, UDP networking to Tfrs.VoiceServer, playback/mixing) --
+// see the port's plan doc. Phase 2: started unconditionally alongside everything else, entirely
+// independent of the pipe/SQF-facing state above until Phase 4 wires them together.
+tfrs::voice::VoiceSession* g_voice = nullptr;
 
 std::once_flag g_initFlag;
 std::atomic<bool> g_senderRunning(false);
@@ -71,6 +76,10 @@ void initialize() {
     g_pipe->start([](const tfrs::json::Value& message) { g_state->onBridgeMessage(message); });
     g_senderRunning.store(true);
     g_senderThread = new std::thread(senderMain);
+
+    g_voice = new tfrs::voice::VoiceSession();
+    g_voice->start();
+
     g_ready.store(true);
 }
 
