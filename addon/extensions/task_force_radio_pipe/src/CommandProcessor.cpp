@@ -35,8 +35,6 @@ std::string CommandProcessor::process(const std::string& input) {
     const std::string payload = async ? input.substr(0, input.size() - 1) : input;
     const std::string command = firstToken(payload);
 
-    if (!m_voice.isConnected()) return kNotConnected;
-
     if (!async) return processSync(command, payload);
 
     processAsync(command, payload);
@@ -48,6 +46,12 @@ std::string CommandProcessor::process(const std::string& input) {
     if (command == "MISSIONEND") {  // -> empty string
         return std::string();
     }
+    // POS is the one command whose "not connected" reply drives fnc_sendPlayerInfo.sqf's hint
+    // popup (docs/protocol-extension-legacy.md point 2). Every other async command (notably
+    // SETCFG) must NOT be gated on this: m_voice.isConnected() is itself downstream of a
+    // SETCFG-delivered host/port, so gating SETCFG on it would deadlock -- the address could
+    // never be configured in the first place.
+    if (command == "POS" && !m_voice.isConnected()) return kNotConnected;
     return "OK";
 }
 

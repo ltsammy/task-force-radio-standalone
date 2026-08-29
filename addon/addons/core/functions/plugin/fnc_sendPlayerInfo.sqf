@@ -50,6 +50,7 @@ if !(_player getVariable ["TFAR_killedEHAttached",false]) then {
     // Arma instead of matching display names, which aren't guaranteed unique.
     private _steamUid = getPlayerUID _player;
     if (_steamUid != "") then {
-        "task_force_radio_pipe" callExtension format ["UID	%1	%2~", _this select 2, _steamUid];
+        private _uidMsg = format ["UID	%1	%2~", _this select 2, _steamUid];
+        "task_force_radio_pipe" callExtension _uidMsg;
     };
 };
