@@ -10,7 +10,7 @@
 
 cmake_minimum_required(VERSION 3.16)  # required by the vendored libopus (third_party/opus)
 
-project(task_force_radio_pipe LANGUAGES CXX)
+project(task_force_radio_pipe LANGUAGES CXX C)  # C needed for the vendored RNNoise (plain C89/C99)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -46,6 +46,29 @@ add_subdirectory(third_party/opus EXCLUDE_FROM_ALL)
 # OPUS_STATIC_RUNTIME actually wired it up internally.
 set_target_properties(opus PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# Vendored RNNoise (third_party/rnnoise, pinned to upstream v0.1.1 -- the small/original model,
+# not current HEAD's much heavier LPCNet-derived one) for real-time mic noise suppression
+# (TransmitController, toggleable via TFAR_Voice_NoiseSuppression). No upstream CMake support
+# (autotools-only), so compiled directly here as its own static-library target -- kept separate
+# from task_force_radio_pipe's own /W4 below, since this is third-party C not written against
+# MSVC's strict warning set (same reasoning as opus's own separate target above).
+# HAVE_CONFIG_H/FIXED_POINT are both deliberately left undefined: undefined HAVE_CONFIG_H skips
+# the (autotools-generated, not vendored) config.h entirely, and undefined FIXED_POINT takes
+# arch.h's floating-point code path, matching this project's float-based audio pipeline throughout.
+add_library(rnnoise STATIC
+    third_party/rnnoise/src/celt_lpc.c
+    third_party/rnnoise/src/denoise.c
+    third_party/rnnoise/src/kiss_fft.c
+    third_party/rnnoise/src/pitch.c
+    third_party/rnnoise/src/rnn.c
+    third_party/rnnoise/src/rnn_data.c
+)
+target_include_directories(rnnoise
+    PUBLIC third_party/rnnoise/include
+    PRIVATE third_party/rnnoise/src
+)
+set_target_properties(rnnoise PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 set(TFRS_SOURCES
     src/CommandProcessor.cpp
     src/CommandProcessor.h
@@ -59,6 +82,8 @@ set(TFRS_SOURCES
     src/Voice/AudioDeviceUtil.h
     src/Voice/Dsp/BiquadFilter.cpp
     src/Voice/Dsp/BiquadFilter.h
+    src/Voice/Dsp/NoiseSuppressor.cpp
+    src/Voice/Dsp/NoiseSuppressor.h
     src/Voice/Dsp/Panning.h
     src/Voice/Dsp/RadioEffectChain.cpp
     src/Voice/Dsp/RadioEffectChain.h
@@ -97,6 +122,7 @@ set_target_properties(task_force_radio_pipe PROPERTIES PREFIX "")
 target_include_directories(task_force_radio_pipe PRIVATE src)
 target_link_libraries(task_force_radio_pipe PRIVATE
     opus
+    rnnoise
     Ws2_32    # VoiceNetworkClient's UDP socket (Winsock2)
     Ole32     # WASAPI device/COM activation (AudioDeviceUtil, WasapiCaptureEngine, PlaybackMixer)
     Bcrypt    # SHA-256 password hash for the ConnectRequest handshake (CNG, not a vendored dep)

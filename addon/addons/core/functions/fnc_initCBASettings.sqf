@@ -367,6 +367,15 @@
     {["voice_transmitMode", TFAR_Voice_TransmitMode] call TFAR_fnc_setPluginSetting;}
 ] call CBA_Settings_fnc_init;
 [
+    "TFAR_Voice_NoiseSuppression",
+    "CHECKBOX",
+    [ELSTRING(settings,voice_noiseSuppression), ELSTRING(settings,voice_noiseSuppression_desc)],
+    localize ELSTRING(settings,clientside),
+    true,
+    2,
+    {["voice_noiseSuppression", _this] call TFAR_fnc_setPluginSetting;}
+] call CBA_Settings_fnc_init;
+[
     "TFAR_SameSRFrequenciesForSide",
     "CHECKBOX",
     ELSTRING(settings,same_sw_frequencies_for_side),

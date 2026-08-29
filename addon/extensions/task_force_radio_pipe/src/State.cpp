@@ -36,7 +36,7 @@ const char* const kValidConfigKeys[] = {
     // from the legacy keys above (which mix snake_case/camelCase inconsistently already).
     "voice_serverHost",    "voice_serverPort",       "voice_serverPassword",
     "voice_micVolume",     "voice_speakerVolume",    "voice_vadThreshold",
-    "voice_transmitMode"};
+    "voice_transmitMode",  "voice_noiseSuppression"};
 
 bool isValidConfigKey(const std::string& key) {
     for (size_t i = 0; i < sizeof(kValidConfigKeys) / sizeof(kValidConfigKeys[0]); ++i) {
@@ -490,6 +490,13 @@ float State::voiceConfigFloat(const char* key, float fallback) const {
     std::unordered_map<std::string, std::string>::const_iterator it = m_config.find(key);
     if (it == m_config.end()) return fallback;
     return parseArmaNumber(it->second);
+}
+
+bool State::voiceConfigBool(const char* key, bool fallback) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::unordered_map<std::string, std::string>::const_iterator it = m_config.find(key);
+    if (it == m_config.end()) return fallback;
+    return it->second == "true" || it->second == "1";
 }
 
 const RemoteClient* State::findClientLocked(const std::string& nickname) const {

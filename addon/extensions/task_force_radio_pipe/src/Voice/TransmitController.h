@@ -12,6 +12,7 @@
 #include <functional>
 #include <vector>
 
+#include "Dsp/NoiseSuppressor.h"
 #include "OpusCodec.h"
 #include "WasapiCaptureEngine.h"
 
@@ -37,6 +38,10 @@ public:
     bool isMicMuted() const { return m_micMuted.load(); }
     void setVadThreshold(float threshold) { m_vadThreshold.store(threshold); }
     void setMicVolume(float volume) { m_micVolume.store(volume); }
+    // Applied before AGC/VAD/encoding, so a cleaner signal also improves VAD accuracy and AGC's
+    // RMS measurement, not just what gets sent. RNNoise stays constructed either way (its own
+    // init is cheap); disabling this just skips calling it, at zero runtime cost when off.
+    void setNoiseSuppressionEnabled(bool enabled) { m_noiseSuppressionEnabled.store(enabled); }
     // Mirrors AddonTransmitOverride: no override -> normal gating; override=false blocks ALL
     // transmission (even AlwaysOn); override=true forces it regardless of mode.
     void setAddonOverride(bool hasOverride, bool overrideValue);
@@ -60,6 +65,7 @@ private:
     std::atomic<bool> m_addonOverrideValue{false};
     std::atomic<float> m_vadThreshold{0.01f};
     std::atomic<float> m_micVolume{1.0f};
+    std::atomic<bool> m_noiseSuppressionEnabled{true};
     std::atomic<float> m_currentLevel{0.0f};
     std::atomic<bool> m_isTransmitting{false};
 
@@ -69,6 +75,8 @@ private:
     std::chrono::steady_clock::time_point m_vadHangoverUntil{};
     bool m_wasTransmitting = false;
     int m_silentFrameCount = 0;
+    NoiseSuppressor m_noiseSuppressor;
+    std::vector<float> m_denoiseScratch;
     std::vector<int16_t> m_pcmScratch;
     std::vector<uint8_t> m_opusScratch;
 };

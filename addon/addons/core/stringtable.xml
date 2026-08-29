@@ -913,6 +913,16 @@
                 <English>Always On</English>
                 <German>Immer aktiv</German>
             </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_noiseSuppression">
+                <Original>Noise Suppression</Original>
+                <English>Noise Suppression</English>
+                <German>Rauschunterdrückung</German>
+            </Key>
+            <Key ID="STR_TFAR_SETTINGS_voice_noiseSuppression_desc">
+                <Original>Removes background noise from your microphone before it's sent. Disable if it causes audible artifacts on your specific microphone.</Original>
+                <English>Removes background noise from your microphone before it's sent. Disable if it causes audible artifacts on your specific microphone.</English>
+                <German>Entfernt Hintergrundgeräusche von deinem Mikrofon, bevor sie gesendet werden. Deaktivieren, falls es bei deinem Mikrofon hörbare Artefakte verursacht.</German>
+            </Key>
             <Key ID="STR_TFAR_HUD_MicMuted">
                 <Original>MIC MUTED</Original>
                 <English>MIC MUTED</English>

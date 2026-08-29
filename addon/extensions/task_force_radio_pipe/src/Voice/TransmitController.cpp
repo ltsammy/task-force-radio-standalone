@@ -18,6 +18,7 @@ constexpr auto kVadHangover = std::chrono::milliseconds(300);
 }  // namespace
 
 TransmitController::TransmitController() {
+    m_denoiseScratch.resize(static_cast<size_t>(OpusFormat::kFrameSamples));
     m_pcmScratch.resize(static_cast<size_t>(OpusFormat::kFrameSamples));
     m_opusScratch.resize(kMaxOpusFrameLength);
 }
@@ -62,7 +63,15 @@ bool TransmitController::determineShouldTransmit(float gainedRms) {
     return false;
 }
 
-void TransmitController::onFrameCaptured(const float* mono960) {
+void TransmitController::onFrameCaptured(const float* rawMono960) {
+    // Noise suppression runs first, before AGC/VAD/encoding, so a cleaner signal also improves
+    // VAD accuracy and AGC's RMS measurement -- not just what ends up sent over the wire.
+    const float* mono960 = rawMono960;
+    if (m_noiseSuppressionEnabled.load()) {
+        m_noiseSuppressor.process(rawMono960, m_denoiseScratch.data());
+        mono960 = m_denoiseScratch.data();
+    }
+
     double rawSumSquares = 0.0;
     for (int i = 0; i < OpusFormat::kFrameSamples; ++i) {
         rawSumSquares += static_cast<double>(mono960[i]) * mono960[i];

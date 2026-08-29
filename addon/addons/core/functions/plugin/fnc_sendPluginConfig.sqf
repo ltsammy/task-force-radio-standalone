@@ -46,5 +46,6 @@
 ["voice_speakerVolume", missionNamespace getVariable ["TFAR_Voice_SpeakerVolume", 1]] call TFAR_fnc_setPluginSetting;
 ["voice_vadThreshold", missionNamespace getVariable ["TFAR_Voice_VadThreshold", 0.01]] call TFAR_fnc_setPluginSetting;
 ["voice_transmitMode", missionNamespace getVariable ["TFAR_Voice_TransmitMode", 1]] call TFAR_fnc_setPluginSetting;
+["voice_noiseSuppression", missionNamespace getVariable ["TFAR_Voice_NoiseSuppression", true]] call TFAR_fnc_setPluginSetting;
 
 //If you add things that player could change in Mission call this PFH or tell players in WIKI

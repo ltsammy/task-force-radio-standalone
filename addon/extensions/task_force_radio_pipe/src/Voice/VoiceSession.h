@@ -87,6 +87,7 @@ public:
     void setMicVolume(float volume) { m_transmit.setMicVolume(volume); }
     void setSpeakerVolume(float volume) { m_playback.setMasterVolume(volume); }
     void setVadThreshold(float threshold) { m_transmit.setVadThreshold(threshold); }
+    void setNoiseSuppressionEnabled(bool enabled) { m_transmit.setNoiseSuppressionEnabled(enabled); }
 
     // -- per-tick inputs from Extension.cpp, driven by State ----------------
 

@@ -161,6 +161,7 @@ public:
     // caller) -- Extension.cpp's tick reads these to drive VoiceSession every cycle.
     std::string voiceConfigString(const char* key, const std::string& fallback) const;
     float voiceConfigFloat(const char* key, float fallback) const;
+    bool voiceConfigBool(const char* key, bool fallback) const;
 
     // What WE are currently transmitting, for VoiceSession to relay via RadioTxUpdate every tick
     // (unconditionally, not just on change -- the receiving side's 1.5s expiry depends on a steady

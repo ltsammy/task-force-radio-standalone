@@ -91,6 +91,7 @@ void senderMain() {
         g_voice->setMicVolume(g_state->voiceConfigFloat("voice_micVolume", 1.0f));
         g_voice->setSpeakerVolume(g_state->voiceConfigFloat("voice_speakerVolume", 1.0f));
         g_voice->setVadThreshold(g_state->voiceConfigFloat("voice_vadThreshold", 0.01f));
+        g_voice->setNoiseSuppressionEnabled(g_state->voiceConfigBool("voice_noiseSuppression", true));
         g_voice->setTransmitMode(parseTransmitMode(g_state->voiceConfigFloat("voice_transmitMode", 1.0f)));
 
         g_state->setLocalTransmitting(g_voice->isTransmitting());
