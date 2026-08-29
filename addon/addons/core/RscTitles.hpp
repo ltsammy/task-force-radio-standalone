@@ -70,7 +70,7 @@ class RscTitles
                 colorBackground[] = {0, 0, 0, 0};
                 font = "PuristaMedium";
                 sizeEx = "(((((safezoneW / safezoneH) min 1.2) / 1.2) / 25) * 0.8)";
-                text = QPATHTOF(ui\tfar_mic_active.png);
+                text = QPATHTOF(ui\tfar_mic_active.paa);
                 x="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_X"",	0.85 * safezoneW + safezoneX - 2.8 * (((safezoneW / safezoneH) min 1.2) / 50)])";
                 y="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_Y"",	0.9 * safezoneH + safezoneY])";
                 w="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])";
