@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "AudioDeviceUtil.h"
+#include "Log.h"
 #include "OpusCodec.h"
 
 namespace tfrs {
@@ -108,6 +109,7 @@ void WasapiCaptureEngine::threadMain() {
 
     IMMDevice* device = AudioDeviceUtil::getDefaultDevice(AudioFlow::Capture);
     if (device == nullptr) {
+        logLine("capture: no default microphone device available");
         CoUninitialize();
         return;
     }
@@ -117,6 +119,7 @@ void WasapiCaptureEngine::threadMain() {
                                   reinterpret_cast<void**>(&audioClient));
     device->Release();
     if (FAILED(hr) || audioClient == nullptr) {
+        logLine("capture: IAudioClient activation failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
         CoUninitialize();
         return;
     }
@@ -124,6 +127,7 @@ void WasapiCaptureEngine::threadMain() {
     WAVEFORMATEX* mixFormat = nullptr;
     hr = audioClient->GetMixFormat(&mixFormat);
     if (FAILED(hr) || mixFormat == nullptr) {
+        logLine("capture: GetMixFormat failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
         audioClient->Release();
         CoUninitialize();
         return;
@@ -140,6 +144,7 @@ void WasapiCaptureEngine::threadMain() {
     CoTaskMemFree(mixFormat);
     mixFormat = nullptr;
     if (FAILED(hr)) {
+        logLine("capture: IAudioClient::Initialize failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
         audioClient->Release();
         CoUninitialize();
         return;
@@ -147,6 +152,7 @@ void WasapiCaptureEngine::threadMain() {
 
     const HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (event == nullptr) {
+        logLine("capture: CreateEventW failed, error=" + std::to_string(GetLastError()));
         audioClient->Release();
         CoUninitialize();
         return;
@@ -157,6 +163,8 @@ void WasapiCaptureEngine::threadMain() {
     hr = audioClient->GetService(__uuidof(IAudioCaptureClient),
                                  reinterpret_cast<void**>(&captureClient));
     if (FAILED(hr) || captureClient == nullptr) {
+        logLine("capture: GetService(IAudioCaptureClient) failed, hr=0x" +
+               toHex(static_cast<uint32_t>(hr)));
         CloseHandle(event);
         audioClient->Release();
         CoUninitialize();
@@ -165,12 +173,16 @@ void WasapiCaptureEngine::threadMain() {
 
     hr = audioClient->Start();
     if (FAILED(hr)) {
+        logLine("capture: IAudioClient::Start failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
         captureClient->Release();
         CloseHandle(event);
         audioClient->Release();
         CoUninitialize();
         return;
     }
+
+    logLine("capture: started, native format " + std::to_string(nativeSampleRate) + "Hz/" +
+           std::to_string(nativeChannels) + "ch/" + (isFloat ? std::string("float") : std::to_string(bitsPerSample) + "-bit PCM"));
 
     thread_local std::vector<float> convertScratch;
 

@@ -120,6 +120,9 @@ private:
     // Worker-thread-only, no synchronization needed -- only threadMain() ever touches these.
     std::chrono::steady_clock::time_point m_lastPingTime;
     std::chrono::steady_clock::time_point m_lastRecvTime;
+    // Throttles resolveAndOpenSocket() failure logging (~every 10th attempt, ~20s at
+    // kReconnectInterval) so an unreachable/misconfigured host doesn't spam the log forever.
+    unsigned m_resolveFailCount = 0;
 };
 
 }  // namespace voice

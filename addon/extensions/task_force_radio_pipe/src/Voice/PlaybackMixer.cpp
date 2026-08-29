@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "AudioDeviceUtil.h"
+#include "Log.h"
 #include "OpusCodec.h"
 
 namespace tfrs {
@@ -43,7 +44,15 @@ void PlaybackMixer::stop() {
 void PlaybackMixer::addSource(uint32_t sessionId, const std::string& uid) {
     std::lock_guard<std::mutex> lock(m_sourcesMutex);
     if (m_sources.find(sessionId) != m_sources.end()) return;
-    m_sources.emplace(sessionId, std::make_unique<RemoteVoiceSource>(sessionId, uid));
+    auto source = std::make_unique<RemoteVoiceSource>(sessionId, uid);
+    if (m_debugForceAudible.load()) {
+        // Matches PlaybackEngine.DebugForceAudible in the C# reference: full volume, centered, no
+        // radio effect, set once at creation -- VoiceSession.applyAudibility() never touches a
+        // source's state at all while this is on (see its own early return), so this is the only
+        // place that sets it.
+        source->setState(RemoteSourceState{1.0f, 0.0f, false, SourceEffect::Direct, 0.0f});
+    }
+    m_sources.emplace(sessionId, std::move(source));
 }
 
 void PlaybackMixer::setSourceState(uint32_t sessionId, const RemoteSourceState& state) {
@@ -103,6 +112,7 @@ void PlaybackMixer::threadMain() {
 
     IMMDevice* device = AudioDeviceUtil::getDefaultDevice(AudioFlow::Render);
     if (device == nullptr) {
+        logLine("playback: no default speaker/headset device available");
         CoUninitialize();
         return;
     }
@@ -112,6 +122,7 @@ void PlaybackMixer::threadMain() {
                                   reinterpret_cast<void**>(&audioClient));
     device->Release();
     if (FAILED(hr) || audioClient == nullptr) {
+        logLine("playback: IAudioClient activation failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
         CoUninitialize();
         return;
     }
@@ -119,6 +130,7 @@ void PlaybackMixer::threadMain() {
     WAVEFORMATEX* mixFormat = nullptr;
     hr = audioClient->GetMixFormat(&mixFormat);
     if (FAILED(hr) || mixFormat == nullptr) {
+        logLine("playback: GetMixFormat failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
         audioClient->Release();
         CoUninitialize();
         return;
@@ -133,6 +145,8 @@ void PlaybackMixer::threadMain() {
     // (no audio output at all) rather than submitting an uninitialized/stale WASAPI buffer to the
     // device on every callback, which could play as loud garbage.
     if (!isFloat && bitsPerSample != 16) {
+        logLine("playback: unsupported device mix format (" + std::to_string(bitsPerSample) +
+               "-bit, not float) -- giving up rather than risk garbage audio output");
         CoTaskMemFree(mixFormat);
         audioClient->Release();
         CoUninitialize();
@@ -145,6 +159,7 @@ void PlaybackMixer::threadMain() {
     CoTaskMemFree(mixFormat);
     mixFormat = nullptr;
     if (FAILED(hr) || deviceChannels == 0) {
+        logLine("playback: IAudioClient::Initialize failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
         audioClient->Release();
         CoUninitialize();
         return;
@@ -152,6 +167,7 @@ void PlaybackMixer::threadMain() {
 
     const HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (event == nullptr) {
+        logLine("playback: CreateEventW failed, error=" + std::to_string(GetLastError()));
         audioClient->Release();
         CoUninitialize();
         return;
@@ -162,6 +178,8 @@ void PlaybackMixer::threadMain() {
     hr = audioClient->GetService(__uuidof(IAudioRenderClient),
                                  reinterpret_cast<void**>(&renderClient));
     if (FAILED(hr) || renderClient == nullptr) {
+        logLine("playback: GetService(IAudioRenderClient) failed, hr=0x" +
+               toHex(static_cast<uint32_t>(hr)));
         CloseHandle(event);
         audioClient->Release();
         CoUninitialize();
@@ -173,12 +191,17 @@ void PlaybackMixer::threadMain() {
 
     hr = audioClient->Start();
     if (FAILED(hr)) {
+        logLine("playback: IAudioClient::Start failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
         renderClient->Release();
         CloseHandle(event);
         audioClient->Release();
         CoUninitialize();
         return;
     }
+
+    logLine("playback: started, device format " + std::to_string(deviceSampleRate) + "Hz/" +
+           std::to_string(deviceChannels) + "ch/" +
+           (isFloat ? std::string("float") : std::to_string(bitsPerSample) + "-bit PCM"));
 
     // Resample step for the internal 48kHz mix -> the device's actual native rate. On most
     // systems these already match (step == 1.0, pure passthrough); this is what makes it correct

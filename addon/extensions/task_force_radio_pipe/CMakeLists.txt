@@ -62,6 +62,8 @@ set(TFRS_SOURCES
     src/Voice/Dsp/Panning.h
     src/Voice/Dsp/RadioEffectChain.cpp
     src/Voice/Dsp/RadioEffectChain.h
+    src/Voice/Log.cpp
+    src/Voice/Log.h
     src/Voice/OpusCodec.cpp
     src/Voice/OpusCodec.h
     src/Voice/PlaybackMixer.cpp

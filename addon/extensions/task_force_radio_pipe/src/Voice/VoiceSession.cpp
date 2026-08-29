@@ -114,6 +114,12 @@ void VoiceSession::setIdentity(const std::string& uid, const std::string& name) 
 }
 
 void VoiceSession::applyAudibility(const std::vector<AudibilityUpdate>& units) {
+    // Matches VoiceSessionCoordinator.OnUnitsReceived's own early return: while debug-force-
+    // audible is on, every source was already set fully audible once at creation
+    // (PlaybackMixer::addSource) -- ignore whatever the solver computed so it can't silence/pan
+    // anyone back, keeping this a clean test of raw voice transport.
+    if (m_playback.debugForceAudible()) return;
+
     std::vector<uint32_t> seenSessionIds;
     seenSessionIds.reserve(units.size());
 

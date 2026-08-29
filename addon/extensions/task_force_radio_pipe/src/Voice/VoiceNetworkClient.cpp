@@ -9,6 +9,7 @@
 
 #include <bcrypt.h>
 
+#include "Log.h"
 #include "Protocol.h"
 
 namespace tfrs {
@@ -119,14 +120,24 @@ bool VoiceNetworkClient::resolveAndOpenSocket(const ServerConfig& config) {
 
     addrinfo* result = nullptr;
     const std::string portStr = std::to_string(config.port);
-    if (getaddrinfo(config.host.c_str(), portStr.c_str(), &hints, &result) != 0 ||
-        result == nullptr) {
+    const int gaiResult = getaddrinfo(config.host.c_str(), portStr.c_str(), &hints, &result);
+    if (gaiResult != 0 || result == nullptr) {
+        // Throttled: a not-yet-configured or misconfigured host retries every kReconnectInterval
+        // forever, and every attempt would fail identically -- logging all of them would just
+        // spam the file without adding information after the first one.
+        if ((++m_resolveFailCount % 10) == 1) {
+            logLine("DNS resolution failed for '" + config.host + ":" + portStr +
+                   "', getaddrinfo error=" + std::to_string(gaiResult));
+        }
         return false;
     }
+    m_resolveFailCount = 0;
 
     const SOCKET s = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
     if (s == INVALID_SOCKET) {
+        const DWORD err = WSAGetLastError();
         freeaddrinfo(result);
+        logLine("socket() failed, error=" + std::to_string(err));
         return false;
     }
 
@@ -135,7 +146,10 @@ bool VoiceNetworkClient::resolveAndOpenSocket(const ServerConfig& config) {
     const int connectResult = connect(s, result->ai_addr, static_cast<int>(result->ai_addrlen));
     freeaddrinfo(result);
     if (connectResult != 0) {
+        const DWORD err = WSAGetLastError();
         closesocket(s);
+        logLine("connect() failed for '" + config.host + ":" + portStr +
+               "', error=" + std::to_string(err));
         return false;
     }
 
@@ -201,12 +215,16 @@ bool VoiceNetworkClient::tryHandshake(const ServerConfig& config, const Identity
                         std::lock_guard<std::mutex> lock(m_serverVersionMutex);
                         m_serverVersion = version;
                     }
+                    logLine("connected to voice server, sessionId=" + std::to_string(sid));
                 } catch (...) {
                     continue;  // malformed accept -- keep waiting within this attempt
                 }
                 return true;
             }
             if (type == PacketType::ConnectReject) {
+                const uint8_t reason = (n >= 2) ? recvBuf[1] : 0;
+                logLine("connect rejected, reason=" + std::to_string(reason) +
+                       " (1=BadPassword 2=ServerFull 3=VersionMismatch 4=BadRequest)");
                 return false;  // rejected outright, retrying with the same credentials won't help
             }
             // Anything else (e.g. a stray late packet from a previous session) -- ignore, keep
@@ -400,6 +418,9 @@ void VoiceNetworkClient::threadMain() {
         if (now - m_lastRecvTime > kServerTimeout) {
             // No datagram of any kind (even malformed) for kServerTimeout -- declare the
             // connection lost. The outer loop's next iteration reconnects automatically.
+            logLine("connection lost: no datagram received for " +
+                   std::to_string(std::chrono::duration_cast<std::chrono::seconds>(kServerTimeout).count()) +
+                   "s (server crashed/restarted/network cut)");
             closeSocket();
             setConnected(false);
         }

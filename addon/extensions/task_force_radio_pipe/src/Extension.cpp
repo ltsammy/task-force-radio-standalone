@@ -64,6 +64,18 @@ tfrs::voice::TransmitMode parseTransmitMode(float value) {
     return TransmitMode::AlwaysOn;
 }
 
+// voice_serverPort comes from a free-text EDITBOX (unlike the SLIDER/LIST settings above, which
+// can't produce anything but a well-formed in-range number from their own UI) -- garbage input
+// (empty, "abc", "nan", a huge number) is a real possibility, and static_cast<uint16_t> of a NaN
+// or out-of-range float is undefined behavior, not just "the wrong value". Clamping NaN to 0 is
+// deliberate: VoiceNetworkClient::threadMain already treats port 0 as "not configured yet, wait"
+// rather than attempting a connection at all, which is exactly the right behavior for garbage
+// input too.
+uint16_t parsePort(float value) {
+    if (!(value >= 0.0f && value <= 65535.0f)) return 0;  // also catches NaN (fails every comparison)
+    return static_cast<uint16_t>(value);
+}
+
 void senderMain() {
     while (g_senderRunning.load()) {
         g_state->setVoiceConnected(g_voice->isConnected());
@@ -74,7 +86,7 @@ void senderMain() {
         // live host/port/password edit gets picked up and triggers an automatic reconnect (see
         // VoiceNetworkClient::threadMain's configChangedLocked check).
         g_voice->setServer(g_state->voiceConfigString("voice_serverHost", ""),
-                           static_cast<uint16_t>(g_state->voiceConfigFloat("voice_serverPort", 9987.0f)),
+                           parsePort(g_state->voiceConfigFloat("voice_serverPort", 9987.0f)),
                            g_state->voiceConfigString("voice_serverPassword", ""));
         g_voice->setMicVolume(g_state->voiceConfigFloat("voice_micVolume", 1.0f));
         g_voice->setSpeakerVolume(g_state->voiceConfigFloat("voice_speakerVolume", 1.0f));
