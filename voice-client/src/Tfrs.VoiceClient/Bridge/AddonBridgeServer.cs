@@ -119,7 +119,15 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
 
             if (DateTime.UtcNow - _lastLineReceivedUtc > BridgeTimeout)
             {
-                try { pipe.Disconnect(); } catch { /* already gone */ }
+                // Disconnect() alone turned out not to reliably unblock an in-flight
+                // ReadLineAsync -- observed live: the extension correctly detected its own
+                // connection was gone and tried to reconnect, but NamedPipeServerStream only
+                // allows one instance for this pipe name, and this stream was still holding it
+                // (stuck forever on a read that never faulted), so the extension's reconnect
+                // attempt had nowhere to go. Dispose() forces the underlying handle closed,
+                // which reliably faults the pending read and lets the accept loop move on to a
+                // fresh instance the extension can actually connect to.
+                try { pipe.Dispose(); } catch { /* already gone */ }
                 return;
             }
         }
@@ -141,6 +149,12 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
             }
             catch (OperationCanceledException)
             {
+                break;
+            }
+            catch (ObjectDisposedException)
+            {
+                // The watchdog disposed the pipe out from under this read (see
+                // BridgeWatchdogLoopAsync) — same as any other "connection is gone" exit.
                 break;
             }
 
