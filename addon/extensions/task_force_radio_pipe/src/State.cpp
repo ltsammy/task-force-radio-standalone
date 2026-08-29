@@ -19,10 +19,6 @@ constexpr std::chrono::milliseconds kClientExpiry(6000);
 // A remote transmission announcement is dropped when it is not refreshed.
 constexpr std::chrono::milliseconds kTxExpiry(1500);
 
-// Heuristic used only until the voice client sends its first `tx` message,
-// see README.md. Roughly the range of a typical long range radio.
-constexpr float kAssumedRadioRange = 3000.0f;
-
 // Config keys accepted by SETCFG (docs/protocol-extension-legacy.md).
 const char* const kValidConfigKeys[] = {
     "full_duplex",         "addon_version",          "intercomVolume",
@@ -438,7 +434,6 @@ void State::setRemoteTx(const std::string& uid, bool active, const std::string& 
     }
     if (name.empty()) return;  // not yet resolved via the UID command -- nothing to attach this to
 
-    m_everReceivedTx = true;
     if (!active || freq.empty()) {
         m_remoteTx.erase(name);
         return;
@@ -730,28 +725,6 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
                     haveBest = true;
                     haveRadioBest = true;
                 }
-            }
-        }
-    } else if (!m_everReceivedTx && !other.isSpectating && !other.dead && me.canUseSW &&
-               !m_swFrequencies.empty()) {
-        // Fallback while the voice client does not report remote transmissions
-        // yet: assume everybody may be on our first SW frequency so that radio
-        // is at least audible during bring-up. See README.md.
-        const float effDist = effectiveDistance(myPos, other, now);
-        if (effDist <= kAssumedRadioRange) {
-            float volumeLevel = volumeMultiplier(
-                static_cast<float>(m_swFrequencies.begin()->second.volume));
-            if (headsetLowered) volumeLevel *= 0.1f;
-
-            AudibleUnit unit;
-            unit.nickname = other.nickname;
-            unit.fx = "sw";
-            unit.gain = volumeLevel * 0.35f;
-            unit.az = 0.0f;
-            unit.err = clampf(effDist / kAssumedRadioRange, 0.0f, 1.0f);
-            if (unit.gain > 0.0f) {
-                best = unit;
-                haveBest = true;
             }
         }
     }

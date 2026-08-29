@@ -228,7 +228,6 @@ private:
     std::unordered_map<std::string, std::string> m_nameToUid;
     std::unordered_set<std::string> m_talkingNames;
     std::unordered_map<std::string, RemoteTx> m_remoteTx;
-    bool m_everReceivedTx = false;
 
     // Config handshake.
     bool m_haveConfig = false;
