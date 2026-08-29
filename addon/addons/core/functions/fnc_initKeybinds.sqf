@@ -206,17 +206,12 @@ private _fnc_localizeLRChannel = {
 // being held via SWTransmit/LRTransmit above) and mic/speaker mute, replacing the old standalone
 // voice client's own GetAsyncKeyState polling with Arma's own input handling (Configure Controls
 // -> Configure Addons -> TFAR). Unbound by default, same as ToggleHeadset.
-// Down/up handlers return false (not handled/don't consume), matching every other TFAR keybind
-// that fires on both press AND release (SWTransmit/LRTransmit above, via
-// fnc_onSwTangentPressed.sqf etc, which all end with `false`) -- MicMute/SpeakerMute/ToggleHeadset
-// only fire on release with an empty {} down-handler, so this pairing wasn't proven by them.
-["TFAR", "MicPTT", [localize LSTRING(key_MicPTT), localize LSTRING(key_MicPTT)], {
-    "task_force_radio_pipe" callExtension "MICPTT\tPRESSED~";
-    false
-}, {
-    "task_force_radio_pipe" callExtension "MICPTT\tRELEASED~";
-    false
-}, [0, [false, false, false]], false] call cba_fnc_addKeybind;
+// Routed through named functions (fnc_onMicPTTPressed.sqf/fnc_onMicPTTReleased.sqf), matching
+// SWTransmit/LRTransmit's exact structure above byte-for-byte, not just their `false` return --
+// live-confirmed the inline-code-block version never fired at all (no key/return-value
+// combination made a difference), so this eliminates every remaining structural difference
+// against the one pattern proven to work for a real press-AND-release keybind.
+["TFAR", "MicPTT", [localize LSTRING(key_MicPTT), localize LSTRING(key_MicPTT)], {call TFAR_fnc_onMicPTTPressed}, {call TFAR_fnc_onMicPTTReleased}, [0, [false, false, false]], false] call cba_fnc_addKeybind;
 
 ["TFAR", "MicMute", [localize LSTRING(key_MicMute), localize LSTRING(key_MicMute)], {}, {
     "task_force_radio_pipe" callExtension "MICMUTE~";

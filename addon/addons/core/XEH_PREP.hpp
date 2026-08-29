@@ -21,6 +21,8 @@ PREP_SUB(events\keys,onAdditionalSwTangentPressed);
 PREP_SUB(events\keys,onLRTangentPressed);
 PREP_SUB(events\keys,onLRTangentReleased);
 PREP_SUB(events\keys,onLRTangentReleasedHack);
+PREP_SUB(events\keys,onMicPTTPressed);
+PREP_SUB(events\keys,onMicPTTReleased);
 PREP_SUB(events\keys,onSpeakVolumeChangePressed);
 PREP_SUB(events\keys,onSpeakVolumeModifierPressed);
 PREP_SUB(events\keys,onSpeakVolumeModifierReleased);
