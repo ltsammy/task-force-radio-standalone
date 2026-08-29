@@ -33,9 +33,9 @@ For direct speech, instead: `distance = raw + 2 * objectInterception` (2m penalt
 the line of sight).
 
 These values (`terrainInterception`, `receivingDistanceMultiplicator`, `objectInterception`,
-`voiceVolume`) are delivered by the Arma addon already fully computed via `POS`/`FREQ` — the
-extension passes them through 1:1 as `gain` in the bridge protocol's `units` snapshot (see below,
-section 6: division of labor between extension and client).
+`voiceVolume`) are delivered by the Arma addon already fully computed via `POS`/`FREQ` — `State`
+passes them through 1:1 as `gain` on `computeAudibleUnits()`'s `AudibleUnit` (see below, section 6:
+division of labor between `State` and `Voice/`).
 
 ## 2. Panning (ILD) — simplified stand-in for X3DAudio/HRTF
 
@@ -46,10 +46,10 @@ stereo panning for most users, who don't have a binaural setup anyway).
 
 ```csharp
 // az = azimuth relative to facing direction, radians, 0 = front, positive = clockwise/right
-// (matches the "az" field in the bridge protocol). Note: sin(), not cos() — the original angle
-// this formula was ported from is measured from the right axis, not from "front"; using cos()
-// directly against an az where 0 = front pans dead center audio hard to one side. Caught while
-// cross-checking the extension's az convention against this formula — see
+// (matches AudibleUnit::az). Note: sin(), not cos() — the original angle this formula was ported
+// from is measured from the right axis, not from "front"; using cos() directly against an az
+// where 0 = front pans dead center audio hard to one side. Caught while cross-checking the
+// extension's az convention against this formula — see
 // addon/extensions/task_force_radio_pipe/README.md.
 static (float left, float right) Pan(float azRadians)
 {
@@ -60,8 +60,10 @@ static (float left, float right) Pan(float azRadians)
 }
 ```
 
-Extension point: if real HRTF is wanted later, `Pan` can be swapped for a convolution engine
-without touching the rest of the chain (see `Audio/Dsp/IPanningModel.cs`).
+Current implementation: `addon/extensions/task_force_radio_pipe/src/Voice/Dsp/Panning.h`, a direct
+2-line port of the formula above — no pluggable panning-model abstraction in the native port (the
+old client's `IPanningModel.cs` interface didn't carry over; swap the one implementation directly
+if real HRTF is ever wanted).
 
 ## 3. Radio distortion (`RadioEffect`) — foldback → delay → ringmod → HP → LP
 
@@ -166,24 +168,28 @@ errorLevel = min(
     antennaLoss)
 ```
 
-## 6. Division of labor: extension ↔ client
+## 6. Division of labor: `State` ↔ `Voice/`
 
-So the client itself needs **no** Arma-specific geometry/physics knowledge (terrain, vehicles,
-antennas — that stays the addon's/extension's domain), the work is split as follows:
+Both halves now live in the same process (the extension DLL) and the same address space, but the
+module boundary from the original two-process architecture is kept deliberately intact — `State`
+and `Voice/` never include each other's headers (`Extension.cpp`'s `senderMain` tick is the sole
+integration point, translating between them every tick), so the audio pipeline stays testable
+without any Arma/SQF dependency:
 
-- **Extension (C++, inside the Arma process):** knows all the raw SQF data (distances, terrain
-  interception, vehicle isolation, antenna loss, radio type/subtype, the `errorLevel` base value
-  `distance/range`). Computes, **per audible source**, a finished `gain` (0..1, already including
-  distance attenuation AND the `errorLevel` for radio distortion) and an `az` (azimuth), and sends
-  that in the bridge protocol's `units` snapshot. Also an `effect` type per source (SW/LR/
-  Airborne/DD/Phone/Speaker/DirectSpeech/Intercom) so the client picks the right filter chain.
-  *(This is reflected in `protocol-ipc-bridge.md`'s `units` schema via the `"fx"`/`"err"` fields.)*
-- **Client (C#):** applies only the generic, Arma-independent signal processing (foldback/delay/
-  ringmod, RBJ/Butterworth filters, panning, mixing, compressor) — exactly what's documented here.
-  No geometry/physics code in the client.
+- **`State` (State.h/.cpp):** knows all the raw SQF data (distances, terrain interception, vehicle
+  isolation, antenna loss, radio type/subtype, the `errorLevel` base value `distance/range`).
+  `computeAudibleUnits()` computes, **per audible source**, a finished `gain` (0..1, already
+  including distance attenuation AND the `errorLevel` for radio distortion) and an `az` (azimuth).
+  Also an `effect` type per source (SW/LR/Airborne/DD/Phone/Speaker/DirectSpeech/Intercom,
+  `subtypeToFx()`'s output) so `Voice/` picks the right filter chain.
+- **`Voice/` (RemoteVoiceSource.cpp, RadioEffectChain.cpp, Panning.h):** applies only the generic,
+  Arma-independent signal processing (foldback/delay/ringmod, RBJ/Butterworth filters, panning,
+  mixing, compressor) — exactly what's documented here. No geometry/physics code here at all.
 
-This split is deliberately identical to the original architecture (SQF/extension knows the game
-world, the "TS3 side" only knows audio) and keeps the client testable without an Arma dependency.
+This split is deliberately identical to the original TS3-plugin-era architecture (SQF/extension
+knows the game world, the audio side only knows audio) and to the intermediate two-process
+(extension ↔ standalone voice client) architecture that preceded this one — only the process
+boundary moved, not the module boundary.
 
 ## 7. Gain staging & constants
 

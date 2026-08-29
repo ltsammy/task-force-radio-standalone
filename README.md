@@ -1,16 +1,15 @@
 # Task Force Radio Standalone
 
-A TeamSpeak-3-independent Task Force Radio (TFAR) for Arma 3: its own voice client, its own voice
-server, and an Arma 3 addon wired up to the new system — while staying fully compatible with
-addons/missions that build on top of the original TFAR.
+A TeamSpeak-3-independent Task Force Radio (TFAR) for Arma 3 — one Steam Workshop addon, no
+separate app to install, while staying fully compatible with addons/missions that build on top of
+the original TFAR.
 
 ## Components
 
 | Folder | What |
 |---|---|
-| [`addon/`](addon/) | Arma 3 mod. `addons/` is forked 1:1 from the original TFAR (class names, function names, CfgPatches unchanged) — only `extensions/task_force_radio_pipe/` (the native extension DLL) is newly written and talks to the new voice client instead of TeamSpeak. |
-| [`voice-client/`](voice-client/) | Windows desktop client (C#/WPF): connect via IP/port/password, push-to-talk/voice-activation/always-on, mic/speaker mute with key bindings, device/volume selection, 3D audio + radio distortion modeled on TFAR. |
-| [`voice-server/`](voice-server/) | Pure UDP relay server (C#/.NET, Native AOT), deployable as a lean Docker image (~20MB), built for 200-300 concurrent connections with minimal server load. |
+| [`addon/`](addon/) | Arma 3 mod, published as a single Steam Workshop item. `addons/` is forked 1:1 from the original TFAR (class names, function names, CfgPatches unchanged). `extensions/task_force_radio_pipe/` (the native extension DLL) is newly written: mic capture, Opus, UDP networking, playback mixing, and the radio DSP effect chain all run inside the DLL, in the same process as the audibility solver. |
+| [`voice-server/`](voice-server/) | Pure UDP relay server (C#/.NET, Native AOT), deployable as a lean Docker image (~20MB), built for 200-300 concurrent connections with minimal server load. Every mission needs one running instance that all players' clients connect to — see [Hosting a server](#hosting-a-server) below. |
 
 ## Why this works without rewriting the whole mod
 
@@ -20,36 +19,39 @@ other through a simple text protocol (`callExtension`). That boundary stays exac
 what happens *behind* the extension DLL is entirely new:
 
 ```
-Arma/SQF  ──(unchanged callExtension protocol)──▶  extension DLL (new)
+Arma/SQF  ──(unchanged callExtension protocol)──▶  extension DLL (native, in-process)
                                                               │
-                                                  (new, custom pipe protocol)
+                                                     (UDP, same protocol
+                                                      voice-server already spoke)
                                                               ▼
-                                                  voice client (new) ──UDP──▶ voice server (new)
+                                                        voice-server
 ```
 
-Details: [`docs/protocol-extension-legacy.md`](docs/protocol-extension-legacy.md) (the
-compatibility boundary), [`docs/protocol-ipc-bridge.md`](docs/protocol-ipc-bridge.md) (extension ↔
-voice client), [`docs/protocol-network.md`](docs/protocol-network.md) (voice client ↔ voice
-server), [`docs/dsp-audio-pipeline.md`](docs/dsp-audio-pipeline.md) (3D audio/radio effects in the
-client).
+Details: [`docs/protocol-extension-legacy.md`](docs/protocol-extension-legacy.md) (the SQF ↔
+extension compatibility boundary), [`docs/protocol-network.md`](docs/protocol-network.md)
+(extension ↔ voice-server, the wire protocol), [`docs/dsp-audio-pipeline.md`](docs/dsp-audio-pipeline.md)
+(3D audio/radio effects — filter formulas, panning, gain staging).
+
+## Hosting a server
+
+Every mission needs: the addon (client-side, via Steam Workshop) and one running `voice-server`
+instance (server-side) that all players' addon settings point at. See
+[`docs/server-hosting.md`](docs/server-hosting.md) for the full guide — Workshop install, opening
+the right ports, deploying `voice-server` (Docker/Coolify), and the in-game settings players need
+to configure.
 
 ## Status
 
-- Voice server: done, tested end-to-end (connection, Docker build).
-- Voice client: core functionality (networking, audio pipeline, hotkeys, bridge, UI) implemented
-  and compiling; not yet tested against the real extension.
-- Extension DLL (`addon/extensions/task_force_radio_pipe/`): implemented, not yet compiled/tested
-  (no local C++ toolchain available — first real build happens in CI).
-- Addon build: switched to [HEMTT](https://hemtt.dev/) (matches the `arma3_serverside` project's
-  tooling, has built-in PBO signing). `addon/addons/` builds under it after fixing HEMTT's stricter
-  syntax requirements (unquoted array values that older tools tolerated) — purely syntactic, no
-  behavior change. See [`addon/README.md`](addon/README.md) for build/signing/Steam Workshop notes.
-- CI (`.github/workflows/`): voice-server, voice-client, and addon (extension DLLs + HEMTT) all set
-  up.
+Native voice path (`addon/extensions/task_force_radio_pipe/src/Voice/`): implemented and
+live-verified end-to-end with real players (connection, distance-based audibility, panning, all
+radio effect types, PTT/mic-mute/speaker-mute, radio start/stop beep cues). Voice server: done,
+in production use. Addon build: [HEMTT](https://hemtt.dev/) (PBO signing, Steam Workshop publish).
+See [`addon/README.md`](addon/README.md) for build/signing/Workshop notes and
+[`addon/extensions/task_force_radio_pipe/README.md`](addon/extensions/task_force_radio_pipe/README.md)
+for the extension's own structure and build instructions.
 
 ## License
 
 `addon/` remains under the original Arma Public License Share Alike (see `addon/LICENSE.md`) —
-carried over unchanged from the original. `voice-client/` and `voice-server/` are new, standalone
-code under the MIT license (see the respective `LICENSE` file) — adjust before publishing if
-needed.
+carried over unchanged from the original. `voice-server/` is new, standalone code under the MIT
+license (see its `LICENSE` file).

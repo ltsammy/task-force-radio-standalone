@@ -1,11 +1,12 @@
 # Legacy protocol: SQF ↔ extension DLL (`"task_force_radio_pipe" callExtension`)
 
 **This protocol is the compatibility boundary.** `addons/` stays unchanged — every SQF file keeps
-calling `callExtension` exactly as in the original. The new extension DLL must implement input and
-output byte-exact as described here, but internally translates everything to the bridge protocol
-([`protocol-ipc-bridge.md`](protocol-ipc-bridge.md)) to the new voice client instead of TeamSpeak
-shared memory. Extracted from `old/` (source: `extensions/task_force_radio_pipe/`,
-`ts/src/CommandProcessor.*`, `ts/src/helpers.*`, `addons/core/functions/plugin/*.sqf`).
+calling `callExtension` exactly as in the original. The extension DLL implements input and output
+byte-exact as described here, but internally the audio/networking live in the same process
+(`src/Voice/`, see [`protocol-network.md`](protocol-network.md) for the wire protocol to
+`voice-server`) instead of TeamSpeak shared memory. Extracted from `old/` (source:
+`extensions/task_force_radio_pipe/`, `ts/src/CommandProcessor.*`, `ts/src/helpers.*`,
+`addons/core/functions/plugin/*.sqf`).
 
 ## Basic rule: sync vs. async
 
@@ -52,16 +53,15 @@ radio towers in batches of 50 — just handle it the same way).
 `TS_INFO\t<SUB>` → `SUB` ∈ `{SERVER, SERVERUID, CHANNEL, CHANNELID, PING, VERSION}`.
 
 - `PING` → **must** return `"PONG"` — this is `fnc_isTeamSpeakPluginEnabled.sqf`, the central "is
-  the voice client active" check. Answer from the most recently received bridge `status`
-  (`connected: true` → `PONG`, otherwise timeout/empty).
-- `SERVER`, `SERVERUID`, `CHANNEL` → raw strings, no TS semantics needed; sensible values: the
-  server name or a fixed ID of the voice server the client is connected to (from `status`/
-  connection metadata). Can be answered with reasonable placeholders as long as they aren't
-  empty/an error (no SQF code evaluates the content structurally, only whether a string comes
-  back).
+  the voice connection active" check. Answer from `VoiceNetworkClient::isConnected()`
+  (connected → `PONG`, otherwise timeout/empty).
+- `SERVER`, `SERVERUID`, `CHANNEL` → raw strings, no TS semantics needed; fixed string literals
+  (`State::tsInfo()`) since the native voice-server relay has no server-name/channel concept to
+  report. Can be answered with reasonable placeholders as long as they aren't empty/an error (no
+  SQF code evaluates the content structurally, only whether a string comes back).
 - `CHANNELID` → decimal uint64 string. There is no channel concept in the new server anymore (1
   password = 1 "room") → return the constant `"0"`.
-- `VERSION` → plugin version string (free choice, e.g. the voice client's version).
+- `VERSION` → plugin version string (free choice, e.g. `opus_get_version_string()` or the addon's own version).
 
 ### `POS` (async, 13 fields) — **must always return `"OK"`**
 
@@ -130,17 +130,19 @@ the extension should simply accept it (no forced-update behavior needed like in 
 ### `DFRAME` (async) — heartbeat & the only back-channel
 
 `DFRAME~` — response is normally `"OK"`. Responding `"NEEDCFG"` triggers `fnc_sendPluginConfig.sqf`
-on the SQF side, which fires all 21 `SETCFG` calls. The extension should answer `NEEDCFG` once on
-first start (or whenever it has lost its configuration, e.g. after the voice client reconnects) to
-get the current configuration from the game.
+on the SQF side, which fires all its `SETCFG` calls. The extension should answer `NEEDCFG` once on
+first start (or whenever it has lost its configuration) to get the current configuration from the
+game.
 
 ### `KILLED`, `RELEASE_ALL_TANGENTS`, `MISSIONEND`, `RadioTwrAdd`/`RadioTwrDel`, `collectDebugInfo`
 
 All async, `"OK"` (or an empty string for `MISSIONEND`) as the response. `KILLED`/
-`RELEASE_ALL_TANGENTS` should internally set the transmit override in the bridge protocol
-(`transmitOverride:false` on KILLED, cleared on RELEASE_ALL_TANGENTS). `RadioTwrAdd`/`RadioTwrDel`
-maintain a local antenna list in the extension (for later range/loss computation, if implemented —
-see `docs/dsp-audio-pipeline.md`, antenna loss formula).
+`RELEASE_ALL_TANGENTS` should internally set `State`'s transmit override (a tri-state
+`std::optional<bool>`, consumed once per change by `Extension.cpp`'s `takeTransmitOverride()` and
+forwarded into `VoiceSession::setAddonOverride` — `false` on KILLED, cleared/no-override on
+RELEASE_ALL_TANGENTS). `RadioTwrAdd`/`RadioTwrDel` maintain a local antenna list in the extension
+(for later range/loss computation, if implemented — see `docs/dsp-audio-pipeline.md`, antenna loss
+formula).
 
 ## `UID` (async) — new, additive, not part of the original protocol
 
@@ -151,11 +153,9 @@ UID \t nickname \t steamUid ~
 Sent once per unit (from the same "first time we've seen this unit" check `fnc_sendPlayerInfo.sqf`
 already does for its `Killed` event handler), carrying that unit's `getPlayerUID`. This is how the
 extension resolves a nickname (everything above is nickname-keyed, for legacy-compatibility) to the
-UID this voice client actually uses to route playback — see `uidForLocked` / `m_nameToUid` in
-`State.cpp`. It replaces matching against the voice-relay's broadcast display names (unreliable:
-Arma nicknames aren't guaranteed unique, so two players could collide). The bridge's optional
-`roster` message (`protocol-ipc-bridge.md`) still exists but is now merge-only and never
-authoritative over this.
+UID the native voice path (`src/Voice/`) actually routes playback by — see `uidForLocked` /
+`m_nameToUid` in `State.cpp`, and `VoiceSession`'s uid↔sessionId roster (populated from the voice
+server's own `ClientJoined`/`ClientLeft` packets, `protocol-network.md`).
 
 ## Key pitfalls (don't forget)
 

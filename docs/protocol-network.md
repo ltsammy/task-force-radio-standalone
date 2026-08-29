@@ -1,9 +1,9 @@
-# TFRS Network Protocol (voice client ↔ voice server)
+# TFRS Network Protocol (extension ↔ voice server)
 
 UDP, all multi-byte fields **little-endian**. No TCP fallback — the goal is minimal latency, not
 delivery guarantees. Implemented in `voice-server/src/Tfrs.VoiceServer/Protocol.cs` and
-`voice-client/src/Tfrs.VoiceClient/Networking/Protocol.cs` (both files must be kept in sync by
-hand — there is currently no shared project between them).
+`addon/extensions/task_force_radio_pipe/src/Voice/Protocol.h`/`.cpp` (both files must be kept in
+sync by hand — there is no shared project between a C# service and an Arma extension DLL).
 
 Every packet starts with a `byte PacketType`. Strings are `byte length` + UTF-8 bytes (max 255
 bytes, but much shorter in practice — see table).
