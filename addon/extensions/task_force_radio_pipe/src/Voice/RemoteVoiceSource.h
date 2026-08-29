@@ -57,8 +57,15 @@ private:
     bool tryProduceNextFrame();
     void ensureEffectChain(SourceEffect effect);
 
-    static constexpr int kJitterTargetFrames = 2;    // ~40ms buffered before playback starts
-    static constexpr int kMaxConcealmentFrames = 5;  // ~100ms of PLC before going silent
+    // Live diagnostic evidence (extension.log, "exhausted PLC" lines) showed many simultaneous/
+    // repeated exhaustions across sessions in real play -- PLC exhaustion specifically means
+    // packets stopped arriving with no explicit end-of-talkspurt marker (a real "stopped talking"
+    // is handled separately via VoiceUp's LastFrame flag, never touches this path), so this was
+    // real audible cutout, not a logging false alarm. The original 40ms/100ms budgets were too
+    // tight to absorb brief gaps -- doubled both. Still small enough to not add noticeably more
+    // latency to when a talkspurt audibly starts.
+    static constexpr int kJitterTargetFrames = 4;     // ~80ms buffered before playback starts
+    static constexpr int kMaxConcealmentFrames = 10;  // ~200ms of PLC before going silent
     static constexpr size_t kMaxQueuedFrames = 10;   // bounds stall latency
 
     const uint32_t m_sessionId;
