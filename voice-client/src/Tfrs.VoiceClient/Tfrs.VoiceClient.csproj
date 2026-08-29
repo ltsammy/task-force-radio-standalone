@@ -10,7 +10,7 @@
     <AssemblyName>TfrsVoiceClient</AssemblyName>
     <!-- Logged at startup and kept in step with voice-server's Version and the GitHub release tag,
          so a client/server/addon version mismatch is obvious from the log, not a mystery. -->
-    <Version>1.0.9</Version>
+    <Version>1.0.10</Version>
     <!-- No InvariantGlobalization here (unlike the voice-server): WPF's layout/binding engine
          needs real culture data (XmlLanguage.GetSpecificCulture etc.) and throws at startup
          without it. -->
