@@ -5,15 +5,22 @@ running `voice-server` instance that every player's addon connects to.
 
 ## 1. Install the addon + CBA_A3
 
-Both are Steam Workshop items:
+[CBA_A3](https://steamcommunity.com/sharedfiles/filedetails/?id=450814997) is a required
+dependency, Steam Workshop only.
 
-- [CBA_A3](https://steamcommunity.com/sharedfiles/filedetails/?id=450814997) — required dependency.
-- Task Force Radio Standalone — subscribe on the client, and use SteamCMD to pull the same Workshop
-  item down for the dedicated server (standard Arma 3 server workflow — subscribing the account
-  the server runs under, or `+workshop_download_item 107410 <this item's id>` via steamcmd).
+For the addon itself, the server has two options:
 
-Launch parameter on both client and server: `-mod=@CBA_A3;@task_force_radio` (plus whatever else
-the mission needs).
+- **SteamCMD** (standard Arma 3 server workflow): subscribe the account the server runs under, or
+  `+workshop_download_item 107410 <this item's id>`.
+- **This release's attached zip**: a complete, pre-built, pre-signed `@tfar/` folder (PBOs +
+  both extension DLLs + signing key) — extract it straight into your server's mod directory, no
+  Steam account needed on the server at all. Rebuilt and re-attached whenever a new version ships,
+  so it always matches the current Workshop version.
+
+Clients still need to subscribe to the Workshop item as normal (this is about the *server's* copy).
+
+Launch parameter on both client and server: `-mod=@CBA_A3;@tfar` (or `@task_force_radio` if using
+the Workshop copy's folder name) plus whatever else the mission needs.
 
 ## 2. Deploy `voice-server`
 
