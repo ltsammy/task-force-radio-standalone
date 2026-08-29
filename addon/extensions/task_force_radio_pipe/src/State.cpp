@@ -901,6 +901,17 @@ std::string State::buildUnitsMessage() {
     out += "],\"myUid\":";
     out += json::quote(myUid);
 
+    // So the voice client can log what addon version it's talking to on connect -- to catch a
+    // client/server/addon version mismatch quickly instead of it looking like a mystery bug (this
+    // whole session had exactly that problem more than once). Empty until the extension's first
+    // NEEDCFG round-trip completes (fnc_sendPluginConfig.sqf sends this via SETCFG).
+    out += ",\"addonVersion\":";
+    {
+        std::unordered_map<std::string, std::string>::const_iterator it =
+            m_config.find("addon_version");
+        out += json::quote(it != m_config.end() ? it->second : std::string());
+    }
+
     // Tells the voice client what WE are currently transmitting so it can relay it to every other
     // player's client, which forwards it to their extension as a "tx" message -- see
     // docs/protocol-ipc-bridge.md. Without this, no extension anywhere ever learns who's

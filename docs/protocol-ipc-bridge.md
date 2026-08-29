@@ -22,7 +22,7 @@ shared memory with a binary format.
 {"t":"units","u":[
   {"uid":"76561198000000001","gain":0.82,"az":1.047,"muted":false,"fx":"sw","err":0.15},
   {"uid":"76561198000000002","gain":0.10,"az":-2.5,"muted":false,"fx":"direct","err":0.0}
-],"myUid":"76561198000000003","localTx":{"active":true,"freq":"31.05N","range":1500,"sub":"digital"}}
+],"myUid":"76561198000000003","localTx":{"active":true,"freq":"31.05N","range":1500,"sub":"digital"},"addonVersion":"1.0.0"}
 ```
 
 - `myUid`: the local player's own real Steam UID (`getPlayerUID`), once known (see the `UID`
@@ -54,6 +54,10 @@ shared memory with a binary format.
   stereo panning (no HRTF/binaural — good enough for a clearly perceivable direction, see
   `PlaybackMixer`).
 - `muted`: hard mute independent of `gain` (e.g. encryption key mismatch).
+- `addonVersion`: `TFAR_ADDON_VERSION`, the addon's own version string (via `SETCFG addon_version`,
+  which arrives after the extension's first `NEEDCFG` round-trip — empty until then). Logged by
+  the voice client on first receipt purely as a diagnostic, to catch a client/server/addon version
+  mismatch quickly instead of it looking like a mystery bug.
 - `localTx`: `null` when we're not currently transmitting on a radio, otherwise the frequency/
   range/subtype of what we're sending (from the `TANGENT`/`TANGENT_LR` command — see
   [`protocol-extension-legacy.md`](protocol-extension-legacy.md)). The voice client relays this to

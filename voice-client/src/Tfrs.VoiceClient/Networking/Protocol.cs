@@ -19,6 +19,7 @@ internal static class Protocol
     public const int MaxOpusFrameLength = 500;
     public const int MaxFreqLength = 16;
     public const int MaxSubtypeLength = 16;
+    public const int MaxVersionLength = 16;
 }
 
 internal enum PacketType : byte

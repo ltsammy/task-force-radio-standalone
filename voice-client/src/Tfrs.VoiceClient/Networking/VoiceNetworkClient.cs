@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -46,6 +47,10 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
     /// <summary>Server-dictated only (see ServerOptions.DebugForceAudible) — this client has no
     /// way to request or enable it itself.</summary>
     public bool ServerDebugForceAudible { get; private set; }
+
+    /// <summary>The server's own version string, once known (see ConnectAccept) — logged on
+    /// connect purely as a diagnostic, to catch a client/server version mismatch quickly.</summary>
+    public string ServerVersion { get; private set; } = "";
 
     /// <summary>Fires synchronously from the receive loop the instant ConnectAccept is parsed —
     /// deliberately NOT via the awaited ConnectAsync return, because that continuation is queued
@@ -270,6 +275,11 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
                 SessionId = sessionId;
                 if (reader.Remaining >= 2) reader.ReadUInt16(); // maxClients, informational only
                 ServerDebugForceAudible = reader.Remaining >= 1 && reader.ReadByte() != 0;
+                if (reader.Remaining >= 1)
+                {
+                    try { ServerVersion = reader.ReadString8(Protocol.MaxVersionLength); }
+                    catch (InvalidDataException) { /* older/malformed field — leave empty */ }
+                }
                 DebugFlagReceived?.Invoke(ServerDebugForceAudible);
                 _pendingConnect?.TrySetResult((true, default));
                 break;

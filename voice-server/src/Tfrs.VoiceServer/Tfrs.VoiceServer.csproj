@@ -8,6 +8,10 @@
     <RootNamespace>Tfrs.VoiceServer</RootNamespace>
     <AssemblyName>tfrs-voice-server</AssemblyName>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Sent to clients in ConnectAccept and logged client-side on connect. Bump this with every
+         release so a client/server version mismatch is obvious from the log instead of looking
+         like a mystery bug. Keep in step with voice-client's Version and the GitHub release tag. -->
+    <Version>1.0.5</Version>
     <!-- Workstation+concurrent GC over Server GC: a per-core heap (Server GC's usual win on
          throughput) costs memory we don't need for a stateless packet relay — low footprint
          matters more here than shaving GC pause times under heavy multi-core load. -->

@@ -20,6 +20,7 @@ Protocol version: `1` (`Protocol.VersionMajor`).
 | `MaxOpusFrameLength` | 500 bytes |
 | `MaxFreqLength` | 16 |
 | `MaxSubtypeLength` | 16 |
+| `MaxVersionLength` | 16 |
 
 ## Packet types
 
@@ -64,6 +65,7 @@ byte   packetType = 2
 uint32 sessionId       // server-assigned, unique for this connection
 uint16 maxClients
 byte   debugForceAudible // 0/1 -- see ServerOptions.DebugForceAudible; server-dictated only
+byte   versionLen; byte[] version // the server's own version string, max 16 bytes
 ```
 
 Immediately after, the server sends one `ClientJoined` packet per already-connected client (no
@@ -75,6 +77,10 @@ panning and ignore whatever the Arma extension's bridge otherwise computes (see
 raw mic-to-speaker transport independent of the addon. It is controlled only by the server's
 `TFRS_DEBUG_FORCE_AUDIBLE` env var; the client has no way to request or enable it itself (a
 client-side toggle would let a player hear others regardless of real in-game distance).
+
+`version` is logged by the client on connect purely as a diagnostic (alongside its own version and
+the addon's, via `docs/protocol-ipc-bridge.md`'s `addonVersion`) — a client/server/addon version
+mismatch should be visible in the log immediately instead of looking like a mystery bug.
 
 ### 3 — ConnectReject (Server → Client)
 

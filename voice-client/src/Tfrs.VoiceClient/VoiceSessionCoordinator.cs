@@ -62,6 +62,10 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     /// (re)connecting under the corrected identity.</summary>
     public event Action? AddonUidUpdated;
 
+    /// <summary>The addon's TFAR_ADDON_VERSION, once known — see AddonBridgeServer.AddonVersionReceived.
+    /// Purely diagnostic (logged), to catch a client/server/addon version mismatch quickly.</summary>
+    public event Action<string>? AddonVersionReceived;
+
     /// <summary>The Arma extension's transmitOverride, forwarded for logging/diagnostics — see
     /// docs/protocol-ipc-bridge.md's "local" message. `false` blocks ALL transmission (including
     /// Always-On); `true` forces it regardless of mode; `null` clears the override.</summary>
@@ -117,10 +121,20 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
         // transmit" undiagnosable without a debugger. Surfaced so it shows up in the log instead.
         _bridge.LocalOverrideReceived += v => { _transmit.AddonTransmitOverride = v; AddonOverrideChanged?.Invoke(v); };
         _bridge.LocalUidReceived += OnLocalUidReceived;
+        _bridge.AddonVersionReceived += v => AddonVersionReceived?.Invoke(v);
         _bridge.LocalTxChanged += state => _network.SendRadioTx(
             state.Active, state.Freq, (ushort)Math.Clamp(state.Range, 0, ushort.MaxValue), state.Sub);
         _bridge.ExtensionConnected += () => ExtensionConnectionChanged?.Invoke(true);
-        _bridge.ExtensionDisconnected += () => ExtensionConnectionChanged?.Invoke(false);
+        // Without resetting this, a stale AddonTransmitOverride==false from just before the
+        // extension went away would stay stuck forever, silently blocking ALL transmission
+        // (including Always-On) even with no addon connected at all -- normal PTT/VAD/Always-On
+        // must apply again the moment we know the extension is actually gone.
+        _bridge.ExtensionDisconnected += () =>
+        {
+            ExtensionConnectionChanged?.Invoke(false);
+            _transmit.AddonTransmitOverride = null;
+            AddonOverrideChanged?.Invoke(null);
+        };
 
         _statusHeartbeat = new System.Threading.Timer(_ => { PushStatus(); PruneExpiredTx(); }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
@@ -130,6 +144,7 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     /// <summary>Mirrors the server's ConnectAccept flag — see ServerOptions.DebugForceAudible.
     /// Never settable from here; the client has no local override.</summary>
     public bool ServerDebugForceAudible => _network.ServerDebugForceAudible;
+    public string ServerVersion => _network.ServerVersion;
     public bool MicMuted { get => _transmit.MicMuted; set { _transmit.MicMuted = value; PushStatus(); } }
     public bool SpeakerMuted { get => _playback.SpeakerMuted; set { _playback.SpeakerMuted = value; PushStatus(); } }
 

@@ -7,6 +7,12 @@ namespace Tfrs.VoiceServer;
 
 internal sealed class RelayServer : IAsyncDisposable
 {
+    // Sent to every client in ConnectAccept and logged client-side on connect -- lets a
+    // client/server version mismatch show up in the log immediately instead of looking like a
+    // mystery bug (see Tfrs.VoiceServer.csproj's Version, kept in step with the client's).
+    private static readonly string ServerVersion =
+        System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
+
     private readonly ServerOptions _options;
     private readonly byte[] _expectedPasswordHash;
     private readonly Socket _socket;
@@ -28,7 +34,7 @@ internal sealed class RelayServer : IAsyncDisposable
 
     public async Task RunAsync(CancellationToken ct)
     {
-        Log($"TFRS voice relay listening on UDP port {_options.Port} (max clients: {_options.MaxClients}, timeout: {_options.TimeoutSeconds}s)");
+        Log($"TFRS voice relay v{ServerVersion} listening on UDP port {_options.Port} (max clients: {_options.MaxClients}, timeout: {_options.TimeoutSeconds}s)");
         if (string.IsNullOrEmpty(_options.Password))
             Log("WARNING: no password configured — server accepts any client.");
         if (_options.DebugForceAudible)
@@ -320,13 +326,21 @@ internal sealed class RelayServer : IAsyncDisposable
 
     private void SendAccept(ClientSession session)
     {
-        Span<byte> buf = stackalloc byte[8];
+        Span<byte> buf = stackalloc byte[8 + 1 + Protocol.MaxVersionLength];
         var writer = new PacketWriter(buf);
         writer.WriteByte((byte)PacketType.ConnectAccept);
         writer.WriteUInt32(session.SessionId);
         writer.WriteUInt16((ushort)_options.MaxClients);
         writer.WriteByte((byte)(_options.DebugForceAudible ? 1 : 0));
+        writer.WriteString8(Truncate(ServerVersion, Protocol.MaxVersionLength));
         Send(writer.Written, session.EndPoint);
+    }
+
+    private static string Truncate(string value, int maxUtf8Bytes)
+    {
+        while (System.Text.Encoding.UTF8.GetByteCount(value) > maxUtf8Bytes)
+            value = value[..^1];
+        return value;
     }
 
     private void SendReject(IPEndPoint remote, ConnectRejectReason reason)

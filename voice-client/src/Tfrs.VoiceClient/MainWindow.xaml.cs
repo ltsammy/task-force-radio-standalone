@@ -65,6 +65,9 @@ public partial class MainWindow : Window
 
         UpdateMuteIndicators();
 
+        string clientVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
+        Log($"Client version: {clientVersion}");
+
         _coordinator = new VoiceSessionCoordinator(_settings);
         _coordinator.ConnectionStateChanged += connected => Dispatcher.BeginInvoke(() => OnConnectionStateChanged(connected));
         _coordinator.ConnectError += msg => Dispatcher.BeginInvoke(() => Log(Loc.Format("ConnectFailed", msg)));
@@ -111,6 +114,7 @@ public partial class MainWindow : Window
             true => "Addon is forcing transmission (PTT override) regardless of mode.",
             null => "Addon transmit override cleared — normal PTT/VAD/Always-On applies.",
         }));
+        _coordinator.AddonVersionReceived += v => Dispatcher.BeginInvoke(() => Log($"Addon version: {v}"));
         _coordinator.ConnectionLostUnexpectedly += () => Dispatcher.BeginInvoke(() =>
         {
             Log("Connection to server lost — retrying...");
@@ -236,6 +240,9 @@ public partial class MainWindow : Window
             if (ok)
             {
                 Log(Loc.Format("ConnectedTo", HostTextBox.Text, port));
+                Log(string.IsNullOrEmpty(_coordinator.ServerVersion)
+                    ? "Server version: unknown (older server without version reporting)"
+                    : $"Server version: {_coordinator.ServerVersion}");
                 if (_coordinator.ServerDebugForceAudible)
                 {
                     Log("!!! SERVER DEBUG MODE: hearing everyone at full volume, ignoring the Arma addon's distance/gain — testing only.");

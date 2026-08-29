@@ -22,11 +22,16 @@ internal readonly record struct RemoteTxEntry(string Uid, string Freq, int Range
 internal sealed class AddonBridgeServer : IAsyncDisposable
 {
     private const string PipeName = "TFRS_VoiceBridge";
+    // The extension sends "units" "practically every simulation tick" per docs/protocol-ipc-
+    // bridge.md, so several seconds of total silence is already a generous margin against a brief
+    // Arma hitch -- it means the extension is gone, not just running a slow frame.
+    private static readonly TimeSpan BridgeTimeout = TimeSpan.FromSeconds(5);
 
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _acceptLoopTask;
     private NamedPipeServerStream? _activePipe;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private DateTime _lastLineReceivedUtc;
 
     public event Action<IReadOnlyList<UnitEntry>>? UnitsReceived;
     public event Action<bool?>? LocalOverrideReceived;
@@ -34,6 +39,11 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
     /// it knows it — see the "myUid" field on the "units" message in docs/protocol-ipc-bridge.md.
     /// Only fires with a non-empty value.</summary>
     public event Action<string>? LocalUidReceived;
+    /// <summary>The addon's TFAR_ADDON_VERSION, once known — see "addonVersion" on "units" in
+    /// docs/protocol-ipc-bridge.md. Only fires once, on first non-empty value (purely a diagnostic
+    /// to catch a client/server/addon version mismatch, not something that changes at runtime).</summary>
+    public event Action<string>? AddonVersionReceived;
+    private bool _addonVersionReported;
     /// <summary>Fires on every "units" message with the current local radio-transmit state
     /// (Active=false most of the time) — see LocalTxState.</summary>
     public event Action<LocalTxState>? LocalTxChanged;
@@ -66,11 +76,46 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
             }
 
             _activePipe = pipe;
+            _lastLineReceivedUtc = DateTime.UtcNow;
+            _addonVersionReported = false;
             ExtensionConnected?.Invoke();
+
+            using var watchdogCts = new CancellationTokenSource();
+            var watchdogTask = Task.Run(() => BridgeWatchdogLoopAsync(pipe, watchdogCts.Token));
             await ReadLoopAsync(pipe, ct);
+            watchdogCts.Cancel();
+            try { await watchdogTask; } catch { /* observed on purpose */ }
+
             _activePipe = null;
             ExtensionDisconnected?.Invoke();
             pipe.Dispose();
+        }
+    }
+
+    /// <summary>A hard-killed/crashed Arma process doesn't always signal a Windows named pipe
+    /// closure promptly (or at all, observed in practice) -- without this, a dead extension can
+    /// leave the client stuck reporting "Arma addon: connected" indefinitely, with every
+    /// addon-driven value (transmitOverride, myUid, localTx) frozen at whatever it last was. Forces
+    /// a disconnect if nothing at all has arrived for BridgeTimeout, same pattern as
+    /// VoiceNetworkClient's server watchdog.</summary>
+    private async Task BridgeWatchdogLoopAsync(NamedPipeServerStream pipe, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (DateTime.UtcNow - _lastLineReceivedUtc > BridgeTimeout)
+            {
+                try { pipe.Disconnect(); } catch { /* already gone */ }
+                return;
+            }
         }
     }
 
@@ -94,6 +139,7 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
             }
 
             if (line is null) break; // client disconnected
+            _lastLineReceivedUtc = DateTime.UtcNow;
             if (line.Length == 0) continue;
 
             try
@@ -144,6 +190,16 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
         {
             string myUid = myUidProp.GetString() ?? "";
             if (myUid.Length > 0) LocalUidReceived?.Invoke(myUid);
+        }
+
+        if (!_addonVersionReported && root.TryGetProperty("addonVersion", out var addonVerProp))
+        {
+            string addonVersion = addonVerProp.GetString() ?? "";
+            if (addonVersion.Length > 0)
+            {
+                _addonVersionReported = true;
+                AddonVersionReceived?.Invoke(addonVersion);
+            }
         }
 
         LocalTxState localTx = default;
