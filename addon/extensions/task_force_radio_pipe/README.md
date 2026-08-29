@@ -27,9 +27,12 @@ cmake --build build/win32 --config Release
 Output: `build/<arch>/Release/task_force_radio_pipe[_x64].dll`. Both DLLs belong in
 `@task_force_radio/` (Arma automatically loads the matching architecture).
 
-Requirements: CMake ≥ 3.15, MSVC (Visual Studio 2019/2022). No external dependencies, no
-`FetchContent`, no vendored code — the JSON parser/writer is hand-written (`src/Json.*`) and
-scoped only to the flat bridge schema.
+Requirements: CMake ≥ 3.16, MSVC (Visual Studio 2019/2022). One vendored dependency,
+[`third_party/opus`](third_party/opus) (upstream libopus, pinned to `v1.6.1`, plain committed
+source copy pruned to just what our CMake build touches — no `dnn`/`tests`/`training`/autotools
+files), needed for the in-progress native voice port. Everything else remains dependency free
+(no `FetchContent`); the JSON parser/writer is still hand-written (`src/Json.*`), scoped only to
+the flat bridge schema.
 
 The CRT is linked **statically** (`CMAKE_MSVC_RUNTIME_LIBRARY = MultiThreaded`) so players without
 the VC++ redistributable can still load the DLL.

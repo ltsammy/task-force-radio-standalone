@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstring>
 
+#include <opus.h>
+
 #include "Json.h"
 #include "Version.h"
 
@@ -365,6 +367,10 @@ std::string State::tsInfo(const std::string& sub) {
     if (sub == "CHANNEL") return m_channelName;
     if (sub == "CHANNELID") return "0";  // no channel concept in the new server
     if (sub == "VERSION") return kPluginVersion;
+    // Debug-only smoke test for the vendored libopus link (Phase 1 of the native voice port) --
+    // not part of the legacy protocol, gives a trivial callExtension-based way to confirm the
+    // codec actually linked before any code depends on it.
+    if (sub == "OPUSVER") return opus_get_version_string();
     if (sub == "PING") {
         // Answered from the last `status` we received. Before the first status
         // arrives a live pipe is treated as good enough.

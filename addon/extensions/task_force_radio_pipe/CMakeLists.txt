@@ -8,7 +8,7 @@
 #   64 bit client -> task_force_radio_pipe_x64.dll
 #   32 bit client -> task_force_radio_pipe.dll
 
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.16)  # required by the vendored libopus (third_party/opus)
 
 project(task_force_radio_pipe LANGUAGES CXX)
 
@@ -22,8 +22,29 @@ endif()
 
 # Statically link the CRT so users do not need the VC++ redistributable
 # installed for Arma to be able to load the DLL.
-# Requires CMP0091 = NEW, which cmake_minimum_required(3.15) already sets.
+# Requires CMP0091 = NEW, which cmake_minimum_required(3.16) already sets.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+# Vendored libopus (third_party/opus, pinned to upstream v1.6.1) -- the one genuine third-party
+# dependency this extension carries, needed for the native voice port (see the port's plan doc).
+# Force every knob to match our static-CRT/no-extras build *before* add_subdirectory: none of this
+# needs to be user-configurable, and forcing it here means a stray cached value from some other
+# opus consumer on the same machine can never silently change what we link.
+set(OPUS_STATIC_RUNTIME ON CACHE BOOL "" FORCE)
+set(OPUS_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(OPUS_FUZZING OFF CACHE BOOL "" FORCE)
+# These three pull in the dnn/lpcnet ML bandwidth-extension code (~15 MB of source, not vendored
+# here at all -- see third_party/opus's pruned layout) for features this project doesn't use
+# (classic 48kHz mono VOIP only).
+set(OPUS_DEEP_PLC OFF CACHE BOOL "" FORCE)
+set(OPUS_DRED OFF CACHE BOOL "" FORCE)
+set(OPUS_OSCE OFF CACHE BOOL "" FORCE)
+add_subdirectory(third_party/opus EXCLUDE_FROM_ALL)
+# Defensive: re-assert the static CRT on the opus target directly, regardless of whether
+# OPUS_STATIC_RUNTIME actually wired it up internally.
+set_target_properties(opus PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 set(TFRS_SOURCES
     src/CommandProcessor.cpp
@@ -51,6 +72,7 @@ endif()
 set_target_properties(task_force_radio_pipe PROPERTIES PREFIX "")
 
 target_include_directories(task_force_radio_pipe PRIVATE src)
+target_link_libraries(task_force_radio_pipe PRIVATE opus)
 
 target_compile_definitions(task_force_radio_pipe PRIVATE
     WIN32_LEAN_AND_MEAN
