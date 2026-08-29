@@ -34,6 +34,13 @@
 #include "common.h"
 #include "pitch.h"
 
+/* MSVC portability patch (not upstream): MSVC's C compiler has never supported C99 variable-
+   length arrays, unlike the GCC/Clang this file was written against. _alloca is the standard
+   MSVC replacement -- same stack-allocation semantics as a VLA, freed automatically on return. */
+#if defined(_MSC_VER)
+#include <malloc.h>
+#endif
+
 void rnn_lpc(
       opus_val16       *_lpc, /* out: [0...p-1] LPC coefficients      */
 const opus_val32 *ac,  /* in:  [0...p] autocorrelation values  */
@@ -101,7 +108,11 @@ int rnn_autocorr(
    int fastN=n-lag;
    int shift;
    const opus_val16 *xptr;
+#if defined(_MSC_VER)
+   opus_val16 *xx = (opus_val16*)_alloca(sizeof(opus_val16) * (size_t)n);
+#else
    opus_val16 xx[n];
+#endif
    celt_assert(n>0);
    celt_assert(overlap>=0);
    if (overlap == 0)

@@ -40,6 +40,11 @@
 #include "celt_lpc.h"
 #include "math.h"
 
+/* MSVC portability patch (not upstream): see celt_lpc.c's comment on the same issue. */
+#if defined(_MSC_VER)
+#include <malloc.h>
+#endif
+
 static void find_best_pitch(opus_val32 *xcorr, opus_val16 *y, int len,
                             int max_pitch, int *best_pitch
 #ifdef FIXED_POINT
@@ -294,9 +299,15 @@ void rnn_pitch_search(const opus_val16 *x_lp, opus_val16 *y,
    celt_assert(max_pitch>0);
    lag = len+max_pitch;
 
+#if defined(_MSC_VER)
+   opus_val16 *x_lp4 = (opus_val16*)_alloca(sizeof(opus_val16) * (size_t)(len>>2));
+   opus_val16 *y_lp4 = (opus_val16*)_alloca(sizeof(opus_val16) * (size_t)(lag>>2));
+   opus_val32 *xcorr = (opus_val32*)_alloca(sizeof(opus_val32) * (size_t)(max_pitch>>1));
+#else
    opus_val16 x_lp4[len>>2];
    opus_val16 y_lp4[lag>>2];
    opus_val32 xcorr[max_pitch>>1];
+#endif
 
    /* Downsample by 2 again */
    for (j=0;j<len>>2;j++)
@@ -440,7 +451,11 @@ opus_val16 rnn_remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
       *T0_=maxperiod-1;
 
    T = T0 = *T0_;
+#if defined(_MSC_VER)
+   opus_val32 *yy_lookup = (opus_val32*)_alloca(sizeof(opus_val32) * (size_t)(maxperiod+1));
+#else
    opus_val32 yy_lookup[maxperiod+1];
+#endif
    dual_inner_prod(x, x, x-T0, N, &xx, &xy);
    yy_lookup[0] = xx;
    yy=xx;

@@ -29,6 +29,13 @@
 #include "config.h"
 #endif
 
+/* MSVC portability patch (not upstream): MSVC only defines M_PI etc. from <math.h> when
+   _USE_MATH_DEFINES is set before the first include -- must come before kiss_fft.h too, since
+   that transitively includes <math.h> itself. */
+#if defined(_MSC_VER) && !defined(_USE_MATH_DEFINES)
+#define _USE_MATH_DEFINES
+#endif
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
