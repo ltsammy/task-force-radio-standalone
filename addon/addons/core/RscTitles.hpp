@@ -78,7 +78,7 @@ class RscTitles
                 font = "PuristaMedium";
                 sizeEx = "(((((safezoneW / safezoneH) min 1.2) / 1.2) / 25) * 0.8)";
                 text = QPATHTOF(ui\tfar_mic_active.paa);
-                x="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_X"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_X"",	0.85 * safezoneW + safezoneX]) + 1.15 * (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
+                x="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_X"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_X"",	0.85 * safezoneW + safezoneX]) + 1.05 * (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
                 y="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_Y"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_Y"",	0.9 * safezoneH + safezoneY]) + (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)]) / 3])";
                 w="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_W"",  (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)]) / 3])";
                 h="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_W"",  (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)]) / 3])";
@@ -92,7 +92,7 @@ class RscTitles
                 font = "PuristaMedium";
                 sizeEx = "(((((safezoneW / safezoneH) min 1.2) / 1.2) / 25) * 0.8)";
                 text = QPATHTOF(ui\tfar_mic_muted.paa);
-                x="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_X"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_X"",	0.85 * safezoneW + safezoneX]) + 1.60 * (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
+                x="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_X"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_X"",	0.85 * safezoneW + safezoneX]) + 1.43 * (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
                 y="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_Y"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_Y"",	0.9 * safezoneH + safezoneY]) + (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)]) / 3])";
                 w="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_W"",  (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)]) / 3])";
                 h="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_W"",  (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)]) / 3])";
@@ -106,7 +106,7 @@ class RscTitles
                 font = "PuristaMedium";
                 sizeEx = "(((((safezoneW / safezoneH) min 1.2) / 1.2) / 25) * 0.8)";
                 text = QPATHTOF(ui\tfar_speaker_muted.paa);
-                x="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_X"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_X"",	0.85 * safezoneW + safezoneX]) + 2.05 * (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
+                x="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_X"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_X"",	0.85 * safezoneW + safezoneX]) + 1.81 * (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
                 y="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_Y"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_Y"",	0.9 * safezoneH + safezoneY]) + (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)]) / 3])";
                 w="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_W"",  (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)]) / 3])";
                 h="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_W"",  (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)]) / 3])";
