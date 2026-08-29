@@ -12,6 +12,7 @@
 #include "AudioDeviceUtil.h"
 #include "Log.h"
 #include "OpusCodec.h"
+#include "RadioBeepAssets.h"
 
 namespace tfrs {
 namespace voice {
@@ -77,6 +78,23 @@ void PlaybackMixer::removeAllSources() {
     m_sources.clear();
 }
 
+void PlaybackMixer::triggerRemoteBeep(uint32_t sessionId, const std::string& subtype, bool start) {
+    const BeepClip* clip = findBeepClip(subtype, /*local=*/false, start);
+    if (clip == nullptr) return;
+    std::lock_guard<std::mutex> lock(m_sourcesMutex);
+    const auto it = m_sources.find(sessionId);
+    if (it != m_sources.end()) it->second->triggerBeep(clip->samples, clip->count);
+}
+
+void PlaybackMixer::triggerLocalBeep(const std::string& subtype, bool start) {
+    const BeepClip* clip = findBeepClip(subtype, /*local=*/true, start);
+    if (clip == nullptr) return;
+    std::lock_guard<std::mutex> lock(m_sourcesMutex);
+    m_localBeepSamples = clip->samples;
+    m_localBeepTotal = clip->count;
+    m_localBeepPos = 0;
+}
+
 void PlaybackMixer::setMasterVolume(float volume) {
     m_masterVolume.store(std::clamp(volume, 0.0f, 2.0f));
 }
@@ -92,6 +110,18 @@ void PlaybackMixer::generateChunkLocked() {
     for (auto& entry : m_sources) {
         entry.second->render(scratch.data(), kChunkFrames);
         for (size_t i = 0; i < mix.size(); ++i) mix[i] += scratch[i];
+    }
+
+    // Local (self-feedback) beep overlay: centered, plain gain -- no panning/positioning, unlike
+    // the per-source remote beep in RemoteVoiceSource::render.
+    if (m_localBeepPos < m_localBeepTotal) {
+        const size_t toMix = std::min(kChunkFrames, m_localBeepTotal - m_localBeepPos);
+        for (size_t i = 0; i < toMix; ++i) {
+            const float s = m_localBeepSamples[m_localBeepPos + i] / 32768.0f;
+            mix[i * 2] += s;
+            mix[i * 2 + 1] += s;
+        }
+        m_localBeepPos += toMix;
     }
 
     const float volume = m_masterVolume.load();

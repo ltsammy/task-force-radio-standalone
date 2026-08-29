@@ -47,6 +47,13 @@ public:
     void removeSource(uint32_t sessionId);
     void removeAllSources();
 
+    // Radio start/stop "beep" cues (RadioBeepAssets.h). Remote: 3D-positioned at that session's
+    // current gain/azimuth, via RemoteVoiceSource::triggerBeep. Local: centered self-feedback,
+    // mixed directly into the master buffer since there's no per-source concept for "self".
+    // subtype: "sw"/"lr"/"airborne"/"dd" -- anything else has no clip and is a silent no-op.
+    void triggerRemoteBeep(uint32_t sessionId, const std::string& subtype, bool start);
+    void triggerLocalBeep(const std::string& subtype, bool start);
+
     // 0..2, matches PlaybackEngine.MasterVolume's clamp range.
     void setMasterVolume(float volume);
     void setMuted(bool muted);
@@ -73,6 +80,13 @@ private:
 
     std::mutex m_sourcesMutex;
     std::unordered_map<uint32_t, std::unique_ptr<RemoteVoiceSource>> m_sources;
+
+    // Local beep playback cursor -- guarded by m_sourcesMutex (triggerLocalBeep from the tick
+    // thread, consumed by generateChunkLocked under the same lock the render thread already holds
+    // it under, same pattern as m_sources itself).
+    const int16_t* m_localBeepSamples = nullptr;
+    size_t m_localBeepTotal = 0;
+    size_t m_localBeepPos = 0;
 
     // Render-thread-only (single caller: the WASAPI render callback) -- no synchronization needed.
     std::vector<float> m_mixed48k;    // interleaved stereo, accumulating ahead of the resampler

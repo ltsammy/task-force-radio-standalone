@@ -70,6 +70,15 @@ public:
     void toggleMicMute() { m_transmit.setMicMuted(!m_transmit.isMicMuted()); }
     void toggleSpeakerMute() { m_playback.setMuted(!m_playback.isMuted()); }
 
+    // Local radio start/stop beep (self-feedback cue). Extension.cpp calls this on the edges of
+    // State::localTxState()'s `active` field -- see senderMain's own edge-detection, since
+    // localTxState() itself only reports current state, not transitions. The matching remote-side
+    // trigger lives entirely inside this class (the onRadioTx callback in start()), since that's
+    // already where remote tx edges are detected for m_txCache.
+    void triggerLocalBeep(const std::string& subtype, bool start) {
+        m_playback.triggerLocalBeep(subtype, start);
+    }
+
     // -- CBA settings passthrough (see fnc_initCBASettings.sqf's TFAR_Voice_* settings) ----------
     void setTransmitMode(TransmitMode mode) { m_transmit.setMode(mode); }
     void setMicVolume(float volume) { m_transmit.setMicVolume(volume); }

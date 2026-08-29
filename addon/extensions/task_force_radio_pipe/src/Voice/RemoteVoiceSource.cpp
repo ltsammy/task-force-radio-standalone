@@ -97,13 +97,20 @@ bool RemoteVoiceSource::tryProduceNextFrame() {
     return true;
 }
 
+void RemoteVoiceSource::triggerBeep(const int16_t* samples, size_t count) {
+    std::lock_guard<std::mutex> lock(m_beepMutex);
+    m_pendingBeepSamples = samples;
+    m_pendingBeepCount = count;
+}
+
 void RemoteVoiceSource::render(float* out, size_t frameCount) {
     size_t written = 0;
     while (written < frameCount) {
         if (m_stereoFramePos >= m_stereoFrame.size()) {
             if (!tryProduceNextFrame()) {
                 std::memset(out + written * 2, 0, (frameCount - written) * 2 * sizeof(float));
-                return;
+                written = frameCount;
+                break;
             }
             m_stereoFramePos = 0;
         }
@@ -115,6 +122,39 @@ void RemoteVoiceSource::render(float* out, size_t frameCount) {
         m_stereoFramePos += toCopy * 2;
         written += toCopy;
     }
+
+    // Pick up any pending beep trigger, then mix whatever's currently playing on top of the voice
+    // output above (which may just be the silence written by the loop's memset branch -- a beep
+    // should still play even if nobody's actively talking on the radio right now).
+    {
+        std::lock_guard<std::mutex> lock(m_beepMutex);
+        if (m_pendingBeepSamples != nullptr) {
+            m_beepSamples = m_pendingBeepSamples;
+            m_beepTotal = m_pendingBeepCount;
+            m_beepPos = 0;
+            m_pendingBeepSamples = nullptr;
+        }
+    }
+
+    if (m_beepPos >= m_beepTotal) return;
+
+    RemoteSourceState state;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        state = m_state;
+    }
+    if (state.muted) return;  // matches tryProduceNextFrame's own muted gate
+
+    const auto [left, right] = Panning::compute(state.azimuthRadians);
+    const float leftGain = left * state.gain;
+    const float rightGain = right * state.gain;
+    const size_t toMix = std::min(frameCount, m_beepTotal - m_beepPos);
+    for (size_t i = 0; i < toMix; ++i) {
+        const float s = m_beepSamples[m_beepPos + i] / 32768.0f;
+        out[i * 2] = std::clamp(out[i * 2] + s * leftGain, -1.0f, 1.0f);
+        out[i * 2 + 1] = std::clamp(out[i * 2 + 1] + s * rightGain, -1.0f, 1.0f);
+    }
+    m_beepPos += toMix;
 }
 
 }  // namespace voice

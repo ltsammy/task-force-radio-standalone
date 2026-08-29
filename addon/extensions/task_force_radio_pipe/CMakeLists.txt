@@ -70,6 +70,8 @@ set(TFRS_SOURCES
     src/Voice/PlaybackMixer.h
     src/Voice/Protocol.cpp
     src/Voice/Protocol.h
+    src/Voice/RadioBeepAssets.cpp
+    src/Voice/RadioBeepAssets.h
     src/Voice/RemoteVoiceSource.cpp
     src/Voice/RemoteVoiceSource.h
     src/Voice/TransmitController.cpp

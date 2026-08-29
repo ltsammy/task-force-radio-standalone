@@ -110,6 +110,19 @@ void senderMain() {
             g_state->setRemoteTx(tx.uid, tx.active, tx.freq, static_cast<float>(tx.range), tx.subtype);
         }
 
+        // Local radio start/stop beep: edge-triggered off localTx.active. localTxState() only
+        // reports current state (not a "changed" event like takeTransmitOverride below), and only
+        // populates `subtype` while active (State.cpp's localTxState()) -- remember the last-seen
+        // subtype so the end-of-transmission beep still knows which radio family it was.
+        static bool s_lastLocalTxActive = false;
+        static std::string s_lastLocalTxSubtype;
+        if (localTx.active != s_lastLocalTxActive) {
+            g_voice->triggerLocalBeep(localTx.active ? localTx.subtype : s_lastLocalTxSubtype,
+                                      localTx.active);
+            s_lastLocalTxActive = localTx.active;
+        }
+        if (localTx.active) s_lastLocalTxSubtype = localTx.subtype;
+
         // Transmit override: no pending change -> nothing to do; a change to "no override" means
         // normal PTT/VAD/AlwaysOn gating applies again; a change to true/false forces/blocks it.
         const std::optional<std::optional<bool>> overrideChange = g_state->takeTransmitOverride();

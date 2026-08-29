@@ -67,12 +67,31 @@ void VoiceSession::start() {
         }
         if (uid.empty()) return;  // not (yet) in the roster -- ignore, matches applyAudibility's policy
 
-        std::lock_guard<std::mutex> lock(m_txCacheMutex);
-        if (active) {
-            m_txCache[senderSessionId] = TxCacheEntry{RadioTxInfo{uid, true, freq, range, sub},
-                                                       std::chrono::steady_clock::now()};
-        } else {
-            m_txCache.erase(senderSessionId);
+        bool wasActive = false;
+        std::string lastSubtype;
+        {
+            std::lock_guard<std::mutex> lock(m_txCacheMutex);
+            const auto it = m_txCache.find(senderSessionId);
+            wasActive = (it != m_txCache.end());
+            if (wasActive) lastSubtype = it->second.info.subtype;
+
+            if (active) {
+                m_txCache[senderSessionId] = TxCacheEntry{RadioTxInfo{uid, true, freq, range, sub},
+                                                           std::chrono::steady_clock::now()};
+            } else {
+                m_txCache.erase(senderSessionId);
+            }
+        }
+
+        // Radio start/stop beep, edge-triggered: onRadioTx fires on every RadioTxBroadcast, which
+        // resends every tick while active (see sendRadioTx's own doc comment) -- only the actual
+        // active/inactive transition should play a cue, not every refresh. The end cue uses the
+        // cached subtype, not `sub`, since the wire protocol leaves `sub` meaningless on an
+        // active=false packet (RadioTxUpdate's own doc comment).
+        if (active && !wasActive) {
+            m_playback.triggerRemoteBeep(senderSessionId, sub, /*start=*/true);
+        } else if (!active && wasActive) {
+            m_playback.triggerRemoteBeep(senderSessionId, lastSubtype, /*start=*/false);
         }
     };
     callbacks.onConnectionStateChanged = [this](bool connected) {

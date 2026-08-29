@@ -43,6 +43,12 @@ public:
     // Called from the extension's main tick thread (Phase 4: with State's computed audibility).
     void setState(const RemoteSourceState& state);
 
+    // Called from the network thread (VoiceSession's onRadioTx, on a start/end edge). Queues a
+    // one-shot overlay, mixed into the next render() calls at this source's current gain/azimuth
+    // (not run through the radio effect chain -- the distinction between radio families is baked
+    // into which clip plays, not applied as DSP). A new trigger replaces any still-playing one.
+    void triggerBeep(const int16_t* samples, size_t count);
+
     // Pulled from the render callback thread: writes exactly `frameCount` stereo interleaved
     // float samples (48kHz) into `out` (capacity >= frameCount*2). Never blocks.
     void render(float* out, size_t frameCount);
@@ -78,6 +84,18 @@ private:
     // Written from the main tick thread, read from the render thread.
     std::mutex m_stateMutex;
     RemoteSourceState m_state = RemoteSourceState::silent();
+
+    // Cross-thread handoff for triggerBeep() (called from the network thread) -> render thread.
+    // A single pending slot, not a queue: beep clips are short (~150-400ms) and a fresh trigger
+    // superseding a still-playing one is acceptable, unlike opus frames which must never drop.
+    std::mutex m_beepMutex;
+    const int16_t* m_pendingBeepSamples = nullptr;
+    size_t m_pendingBeepCount = 0;
+
+    // Render-thread-only playback cursor for the currently-mixing beep, if any.
+    const int16_t* m_beepSamples = nullptr;
+    size_t m_beepTotal = 0;
+    size_t m_beepPos = 0;
 };
 
 }  // namespace voice
