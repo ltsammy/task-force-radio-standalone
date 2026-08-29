@@ -368,11 +368,19 @@ void VoiceNetworkClient::threadMain() {
         }
 
         if (config.host.empty() || config.port == 0) {
-            // Nothing configured yet (Phase 2: VoiceSession hardcodes this; Phase 6: driven by
-            // CBA settings) -- wait rather than spin.
+            // Not configured yet -- driven by the voice_serverHost/Port CBA settings (see
+            // fnc_initCBASettings.sqf). Wait rather than spin. Throttled the same way as the
+            // resolve-failure log below: this state can persist indefinitely if a mission simply
+            // never sets these, and that must not spam the file forever.
+            if ((++m_notConfiguredLogCount % 10) == 1) {
+                logLine("waiting: voice server not configured (host='" + config.host +
+                       "', port=" + std::to_string(config.port) +
+                       ") -- set Voice Server Address/Port under Configure Addons -> TFAR");
+            }
             std::this_thread::sleep_for(kReconnectInterval);
             continue;
         }
+        m_notConfiguredLogCount = 0;
 
         if (shouldReconnect) {
             closeSocket();

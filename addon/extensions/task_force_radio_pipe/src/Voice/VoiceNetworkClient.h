@@ -123,6 +123,8 @@ private:
     // Throttles resolveAndOpenSocket() failure logging (~every 10th attempt, ~20s at
     // kReconnectInterval) so an unreachable/misconfigured host doesn't spam the log forever.
     unsigned m_resolveFailCount = 0;
+    // Same throttling, for the "not configured at all yet" wait state in threadMain().
+    unsigned m_notConfiguredLogCount = 0;
 };
 
 }  // namespace voice
