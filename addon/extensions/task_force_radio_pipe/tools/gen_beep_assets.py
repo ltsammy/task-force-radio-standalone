@@ -17,13 +17,18 @@ OUT_PATH = (REPO_ROOT / "addon" / "extensions" / "task_force_radio_pipe" / "src"
             "RadioBeepAssets.cpp")
 
 TARGET_RATE = 48000
-# subtype key (matches Extension.cpp's parseSourceEffect / the wire protocol's radio subtype
-# strings) -> old radio-sounds subfolder name.
+# subtype key -> old radio-sounds subfolder name. The key is the RAW tf_subtype CfgWeapons/
+# CfgVehicles config value (see e.g. addon/addons/handhelds/anprc152/CfgWeapons.hpp), which is what
+# actually flows through State::localTxState()/the RadioTxUpdate wire protocol -- NOT State.cpp's
+# subtypeToFx() output ("sw"/"lr"/etc, used only for the audibility solver's DSP-effect selection).
+# Deliberately ignores subtypeToFx's "digital" + underwater -> "dd" special case: threading
+# per-transmission underwater status through the beep trigger path isn't worth it for what's just
+# the choice of click sound on a rare edge case.
 SUBTYPES = {
-    "sw": "sw",
-    "lr": "lr",
-    "airborne": "ab",
-    "dd": "dd",
+    "digital": "sw",       # handheld/SW radios (anprc152, anprc154, anprc148jem, rf7800, ...)
+    "digital_lr": "lr",    # backpack/LR radios (rt1523g, enoch, mr3000, anprc155, bussole, ...)
+    "airborne": "ab",      # airborne backpack radios (anarc164, anarc210, mr6000l)
+    "dd": "dd",            # not observed on any current radio's tf_subtype, kept for forward-compat
 }
 DIRECTIONS = ["local", "remote"]
 EDGES = ["start", "end"]
@@ -71,7 +76,8 @@ def read_wav_mono_i16(path: Path):
 
 
 def array_name(subtype_key, direction, edge):
-    return f"k{subtype_key.capitalize()}{direction.capitalize()}{edge.capitalize()}"
+    subtype_camel = "".join(part.capitalize() for part in subtype_key.split("_"))
+    return f"k{subtype_camel}{direction.capitalize()}{edge.capitalize()}"
 
 
 def emit_array(lines, name, samples):
@@ -90,7 +96,10 @@ def main():
     lines.append("// assets in old/ts/radio-sounds/ -- do not hand-edit). Radio start/stop \"beep\" cue")
     lines.append("// clips, resampled to 48kHz mono int16 (see RadioBeepAssets.h). This feature was dropped")
     lines.append("// during the C# rewrite and never carried forward; only 4 of the 8 SourceEffect radio")
-    lines.append("// families (sw/lr/airborne/dd) ever had dedicated clips in the original plugin.")
+    lines.append("// families (sw/lr/airborne/dd) ever had dedicated clips in the original plugin. Keyed on")
+    lines.append("// the RAW tf_subtype config string (\"digital\"/\"digital_lr\"/\"airborne\"), not the")
+    lines.append("// subtypeToFx()-translated \"sw\"/\"lr\" State.cpp uses for DSP-effect selection -- see")
+    lines.append("// gen_beep_assets.py's SUBTYPES comment for why.")
     lines.append("#include \"RadioBeepAssets.h\"")
     lines.append("")
     lines.append("namespace tfrs {")

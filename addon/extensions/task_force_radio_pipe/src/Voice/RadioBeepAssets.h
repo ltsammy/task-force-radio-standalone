@@ -17,10 +17,13 @@ struct BeepClip {
     size_t count;
 };
 
-// subtype: "sw"/"lr"/"airborne"/"dd" (matches Extension.cpp's parseSourceEffect and the wire
-// protocol's radio subtype strings). Only these four radio families ever had dedicated clips in
-// the original plugin -- any other subtype (phone/speaker/intercom/direct/unrecognized) returns
-// nullptr, meaning "no beep for this radio type", not an error.
+// subtype: "digital"/"digital_lr"/"airborne"/"dd" -- the RAW tf_subtype CfgWeapons/CfgVehicles
+// config value, as carried by State::localTxState()/the RadioTxUpdate wire protocol. NOT
+// Extension.cpp's parseSourceEffect vocabulary ("sw"/"lr"/etc, State.cpp's subtypeToFx() output) --
+// that translation exists only for the audibility solver's DSP-effect selection and this lookup
+// intentionally bypasses it (see gen_beep_assets.py). Only these four radio families ever had
+// dedicated clips in the original plugin -- any other subtype (phone/speaker/intercom/direct/
+// unrecognized) returns nullptr, meaning "no beep for this radio type", not an error.
 const BeepClip* findBeepClip(const std::string& subtype, bool local, bool start);
 
 }  // namespace voice

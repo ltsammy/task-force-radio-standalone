@@ -50,7 +50,8 @@ public:
     // Radio start/stop "beep" cues (RadioBeepAssets.h). Remote: 3D-positioned at that session's
     // current gain/azimuth, via RemoteVoiceSource::triggerBeep. Local: centered self-feedback,
     // mixed directly into the master buffer since there's no per-source concept for "self".
-    // subtype: "sw"/"lr"/"airborne"/"dd" -- anything else has no clip and is a silent no-op.
+    // subtype: the raw tf_subtype config value ("digital"/"digital_lr"/"airborne"/"dd") -- see
+    // RadioBeepAssets.h. Anything else has no clip and is a silent no-op.
     void triggerRemoteBeep(uint32_t sessionId, const std::string& subtype, bool start);
     void triggerLocalBeep(const std::string& subtype, bool start);
 

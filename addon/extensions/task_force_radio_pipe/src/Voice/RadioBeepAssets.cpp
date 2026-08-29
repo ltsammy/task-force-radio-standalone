@@ -2,7 +2,10 @@
 // assets in old/ts/radio-sounds/ -- do not hand-edit). Radio start/stop "beep" cue
 // clips, resampled to 48kHz mono int16 (see RadioBeepAssets.h). This feature was dropped
 // during the C# rewrite and never carried forward; only 4 of the 8 SourceEffect radio
-// families (sw/lr/airborne/dd) ever had dedicated clips in the original plugin.
+// families (sw/lr/airborne/dd) ever had dedicated clips in the original plugin. Keyed on
+// the RAW tf_subtype config string ("digital"/"digital_lr"/"airborne"), not the
+// subtypeToFx()-translated "sw"/"lr" State.cpp uses for DSP-effect selection -- see
+// gen_beep_assets.py's SUBTYPES comment for why.
 #include "RadioBeepAssets.h"
 
 namespace tfrs {
@@ -10,7 +13,7 @@ namespace voice {
 
 namespace {
 
-const int16_t kSwLocalStart[] = {
+const int16_t kDigitalLocalStart[] = {
     -2, -1, -3, -3, -2, -2, -3, -2, -4, -1, -3, 0, -1, -1, -1, -1,
     -3, 0, -2, -2, -3, -3, -2, -3, -1, -2, 0, 1, 2, 4, 3, 5,
     5, 3, 4, 0, -2, -2, -5, -5, -7, -9, -9, -9, -8, -5, -4, -1,
@@ -508,9 +511,9 @@ const int16_t kSwLocalStart[] = {
     1, -1, 0, 0, 1, 0, -1, 0, -1, 1, -1, -1, 1, -2, 1, -2,
     0, 0, 0, 0, 0, 0, 1, -1, -1,
 };
-constexpr size_t kSwLocalStartCount = 7929;
+constexpr size_t kDigitalLocalStartCount = 7929;
 
-const int16_t kSwLocalEnd[] = {
+const int16_t kDigitalLocalEnd[] = {
     -2, -1, -3, -3, -2, -2, -3, -2, -4, -1, -3, 0, -1, -1, -1, -1,
     -3, 0, -2, -2, -3, -3, -2, -3, -1, -2, 0, 1, 2, 4, 3, 5,
     5, 3, 4, 0, -2, -2, -5, -5, -7, -9, -9, -9, -8, -5, -4, -1,
@@ -1008,9 +1011,9 @@ const int16_t kSwLocalEnd[] = {
     1, -1, 0, 0, 1, 0, -1, 0, -1, 1, -1, -1, 1, -2, 1, -2,
     0, 0, 0, 0, 0, 0, 1, -1, -1,
 };
-constexpr size_t kSwLocalEndCount = 7929;
+constexpr size_t kDigitalLocalEndCount = 7929;
 
-const int16_t kSwRemoteStart[] = {
+const int16_t kDigitalRemoteStart[] = {
     40, 44, 42, 38, 33, 27, 21, 19, 17, 14, 9, 3, -6, -16, -25, -34,
     -40, -43, -46, -49, -53, -58, -64, -68, -70, -70, -68, -63, -61, -60, -58, -59,
     -62, -64, -67, -68, -70, -70, -73, -75, -78, -81, -84, -84, -83, -79, -74, -69,
@@ -1804,9 +1807,9 @@ const int16_t kSwRemoteStart[] = {
     6, 4, 1, -1, -3, -4, -4, -1, 1, 2, 3, 4, 1, -1, -2, -3,
     -2, -2, -1, 1, 1, 0, -1, -1, -1, 0, 0, 0, 0,
 };
-constexpr size_t kSwRemoteStartCount = 12669;
+constexpr size_t kDigitalRemoteStartCount = 12669;
 
-const int16_t kSwRemoteEnd[] = {
+const int16_t kDigitalRemoteEnd[] = {
     -1, -1, 0, 0, -1, -1, -1, 0, 1, 1, 0, 0, 0, -1, -2, 0,
     1, 1, 1, 0, 0, -1, -2, -2, 0, -1, 0, 1, 1, 0, 1, -1,
     -1, -1, -1, -1, -1, 2, 2, 1, -1, -2, -1, 0, -2, -1, -1, 0,
@@ -3219,9 +3222,9 @@ const int16_t kSwRemoteEnd[] = {
     0, 1, -1, 0, -2, -2, -2, -2, -1, 1, 1, 2, 2, 0, 0, -1,
     -3, -3, -2, 0, 1, 3, 3, 4, 3, 1,
 };
-constexpr size_t kSwRemoteEndCount = 22570;
+constexpr size_t kDigitalRemoteEndCount = 22570;
 
-const int16_t kLrLocalStart[] = {
+const int16_t kDigitalLrLocalStart[] = {
     -1, 1, -1, 0, 0, 0, 0, -1, -1, 0, 0, 1, -1, 0, -1, 0,
     0, 0, 0, -1, 0, -1, 0, 0, 0, -1, 0, 0, 0, 0, 0, -1,
     -1, 1, -1, 0, 0, -1, 1, -1, 1, -1, 0, -1, 1, -1, -1, 0,
@@ -4449,9 +4452,9 @@ const int16_t kLrLocalStart[] = {
     0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1,
     -1, 1, -2, 1, -1, 1, -1, 0, 1, 0, 0, -1, 0, 0, -1, -1,
 };
-constexpr size_t kLrLocalStartCount = 19616;
+constexpr size_t kDigitalLrLocalStartCount = 19616;
 
-const int16_t kLrLocalEnd[] = {
+const int16_t kDigitalLrLocalEnd[] = {
     0, 0, 0, -1, -1, 0, 0, 0, 1, -1, 0, -2, 0, 0, 0, -1,
     0, -1, 1, 0, -1, 1, 0, 0, -2, 0, 0, -1, 0, -1, 0, 2,
     -1, 0, -1, -1, 1, -1, 1, -1, -1, 0, 0, -1, 0, 0, 0, 0,
@@ -5696,9 +5699,9 @@ const int16_t kLrLocalEnd[] = {
     0, 0, 1, -1, 2, -1, 0, -2, 1, -2, 1, -1, 0, 0, 0, -1,
     0, 1, -1, 0,
 };
-constexpr size_t kLrLocalEndCount = 19876;
+constexpr size_t kDigitalLrLocalEndCount = 19876;
 
-const int16_t kLrRemoteStart[] = {
+const int16_t kDigitalLrRemoteStart[] = {
     -308, -337, -313, -343, -320, -341, -323, -332, -330, -329, -334, -326, -334, -335, -349, -330,
     -325, -331, -329, -328, -325, -329, -325, -328, -327, -329, -329, -326, -327, -327, -326, -364,
     -525, -766, -1033, -1319, -1575, -1728, -1759, -1645, -1388, -1027, -575, -129, 290, 640, 866, 1016,
@@ -6261,9 +6264,9 @@ const int16_t kLrRemoteStart[] = {
     1, 0, -1, -1, 0, -1, -1, 0, 1, 0, 0, 0, -2, 0, 1, 0,
     -1, 0, 0, 0, -1, -1, 1, 0, -1, 0,
 };
-constexpr size_t kLrRemoteStartCount = 8970;
+constexpr size_t kDigitalLrRemoteStartCount = 8970;
 
-const int16_t kLrRemoteEnd[] = {
+const int16_t kDigitalLrRemoteEnd[] = {
     -438, -482, -449, -493, -454, -484, -463, -476, -473, -470, -476, -466, -478, -466, -475, -470,
     -472, -473, -471, -476, -469, -475, -469, -473, -472, -471, -474, -470, -474, -471, -473, -469,
     -472, -473, -472, -473, -470, -473, -471, -473, -473, -472, -471, -471, -473, -472, -473, -471,
@@ -7493,7 +7496,7 @@ const int16_t kLrRemoteEnd[] = {
     -1, 0, 0, 0, 0, -1, -1, 0, 2, 0, 0, -1, -2, 0, 0, 0,
     1, 0, 0, 0, 0, -1, -1, 0, -1, 1, 1, 0,
 };
-constexpr size_t kLrRemoteEndCount = 19644;
+constexpr size_t kDigitalLrRemoteEndCount = 19644;
 
 const int16_t kAirborneLocalStart[] = {
     0, -1, 1, -1, 1, -1, -1, 0, 0, 0, 0, -1, -1, 0, 0, 0,
@@ -15088,14 +15091,14 @@ constexpr size_t kDdRemoteEndCount = 11513;
 
 const BeepClip* findBeepClip(const std::string& subtype, bool local, bool start) {
     static const struct { const char* subtype; bool local; bool start; BeepClip clip; } kTable[] = {
-        {"sw", true, true, {kSwLocalStart, kSwLocalStartCount}},
-        {"sw", true, false, {kSwLocalEnd, kSwLocalEndCount}},
-        {"sw", false, true, {kSwRemoteStart, kSwRemoteStartCount}},
-        {"sw", false, false, {kSwRemoteEnd, kSwRemoteEndCount}},
-        {"lr", true, true, {kLrLocalStart, kLrLocalStartCount}},
-        {"lr", true, false, {kLrLocalEnd, kLrLocalEndCount}},
-        {"lr", false, true, {kLrRemoteStart, kLrRemoteStartCount}},
-        {"lr", false, false, {kLrRemoteEnd, kLrRemoteEndCount}},
+        {"digital", true, true, {kDigitalLocalStart, kDigitalLocalStartCount}},
+        {"digital", true, false, {kDigitalLocalEnd, kDigitalLocalEndCount}},
+        {"digital", false, true, {kDigitalRemoteStart, kDigitalRemoteStartCount}},
+        {"digital", false, false, {kDigitalRemoteEnd, kDigitalRemoteEndCount}},
+        {"digital_lr", true, true, {kDigitalLrLocalStart, kDigitalLrLocalStartCount}},
+        {"digital_lr", true, false, {kDigitalLrLocalEnd, kDigitalLrLocalEndCount}},
+        {"digital_lr", false, true, {kDigitalLrRemoteStart, kDigitalLrRemoteStartCount}},
+        {"digital_lr", false, false, {kDigitalLrRemoteEnd, kDigitalLrRemoteEndCount}},
         {"airborne", true, true, {kAirborneLocalStart, kAirborneLocalStartCount}},
         {"airborne", true, false, {kAirborneLocalEnd, kAirborneLocalEndCount}},
         {"airborne", false, true, {kAirborneRemoteStart, kAirborneRemoteStartCount}},
