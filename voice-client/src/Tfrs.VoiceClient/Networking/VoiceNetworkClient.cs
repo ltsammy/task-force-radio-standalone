@@ -402,8 +402,13 @@ internal sealed class VoiceNetworkClient : IAsyncDisposable
         return writer.Written.ToArray();
     }
 
-    private static string Truncate(string value, int maxUtf8Bytes)
+    private static string Truncate(string? value, int maxUtf8Bytes)
     {
+        // Defense in depth: a null here (e.g. a default-initialized record struct field) must not
+        // crash a low-level packet-writing helper -- Encoding.UTF8.GetByteCount(null) throws
+        // ArgumentNullException, which took down every caller of this (SendRadioTx on every idle
+        // "units" message, in practice) before the actual null was fixed at its source.
+        value ??= string.Empty;
         while (Encoding.UTF8.GetByteCount(value) > maxUtf8Bytes)
             value = value[..^1];
         return value;

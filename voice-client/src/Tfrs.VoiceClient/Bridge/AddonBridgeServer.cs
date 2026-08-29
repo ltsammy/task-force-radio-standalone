@@ -254,7 +254,14 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
             }
         }
 
-        LocalTxState localTx = default;
+        // NOT `default` -- LocalTxState is a record STRUCT, so `default` bypasses the non-nullable
+        // `string Freq`/`Sub` annotations entirely and produces actual nulls at runtime (this is
+        // the state on every "units" message while nobody's transmitting radio, i.e. almost
+        // always). LocalTxChanged fires unconditionally below, straight into
+        // VoiceNetworkClient.SendRadioTx -> Truncate -> Encoding.UTF8.GetByteCount(null), which
+        // throws ArgumentNullException on literally every idle message. Empty strings match the
+        // fallback already used for a present-but-missing "freq"/"sub" field a few lines down.
+        LocalTxState localTx = new(false, string.Empty, 0, string.Empty);
         if (root.TryGetProperty("localTx", out var txProp) && txProp.ValueKind == JsonValueKind.Object)
         {
             bool active = txProp.TryGetProperty("active", out var a2) && a2.GetBoolean();
