@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "Log.h"
 #include "Protocol.h"
 
 namespace tfrs {
@@ -15,6 +16,15 @@ constexpr float kAgcMaxGain = 12.0f;
 constexpr float kAgcAttackRate = 0.4f;   // fast, gain DOWN
 constexpr float kAgcReleaseRate = 0.05f;  // slow, gain UP -- avoids audible "pumping"
 constexpr auto kVadHangover = std::chrono::milliseconds(300);
+
+const char* modeToString(TransmitMode mode) {
+    switch (mode) {
+        case TransmitMode::PushToTalk: return "PTT";
+        case TransmitMode::VoiceActivation: return "VAD";
+        case TransmitMode::AlwaysOn: return "AlwaysOn";
+    }
+    return "?";
+}
 }  // namespace
 
 TransmitController::TransmitController() {
@@ -109,6 +119,29 @@ void TransmitController::onFrameCaptured(const float* rawMono960) {
 
     const bool shouldTransmit = determineShouldTransmit(gainedRms);
     m_isTransmitting.store(shouldTransmit);
+
+    // Diagnostic-only, edge-triggered on the DISCRETE state only (this runs ~50x/second;
+    // gainedRms changes every frame, so keying the comparison on that too would defeat the
+    // point and spam the log every single frame). Added specifically to pin down a live report
+    // of PTT/mode-switching appearing to silently block transmission with no other symptom to
+    // go on -- the continuous values are still included in the logged line for context, just
+    // not part of what triggers logging it.
+    {
+        const std::string overrideStr = m_hasAddonOverride.load()
+                                            ? (m_addonOverrideValue.load() ? "true" : "false")
+                                            : "none";
+        std::string triggerKey = std::string("mode=") + modeToString(m_mode.load()) +
+                                 " pttHeld=" + (m_pttHeld.load() ? "1" : "0") +
+                                 " micMuted=" + (m_micMuted.load() ? "1" : "0") +
+                                 " override=" + overrideStr +
+                                 " -> shouldTransmit=" + (shouldTransmit ? "1" : "0");
+        if (triggerKey != m_lastLoggedGateState) {
+            logLine("transmit-gate: " + triggerKey +
+                   " (gainedRms=" + std::to_string(gainedRms) +
+                   " vadThreshold=" + std::to_string(m_vadThreshold.load()) + ")");
+            m_lastLoggedGateState = triggerKey;
+        }
+    }
 
     if (shouldTransmit) {
         const int encoded = m_encoder.encode(m_pcmScratch.data(), m_opusScratch.data(),

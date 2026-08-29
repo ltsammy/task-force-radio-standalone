@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "Dsp/NoiseSuppressor.h"
@@ -79,6 +80,10 @@ private:
     std::vector<float> m_denoiseScratch;
     std::vector<int16_t> m_pcmScratch;
     std::vector<uint8_t> m_opusScratch;
+
+    // Diagnostic-only (Log.h): last-logged gating state, so onFrameCaptured (called ~50x/second)
+    // only logs on an actual transition, not every frame.
+    std::string m_lastLoggedGateState;
 };
 
 }  // namespace voice
