@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "Dsp/Panning.h"
+#include "Log.h"
 
 namespace tfrs {
 namespace voice {
@@ -72,6 +73,13 @@ bool RemoteVoiceSource::tryProduceNextFrame() {
         if (m_concealmentCount >= kMaxConcealmentFrames) {
             m_isPlaying = false;
             m_concealmentCount = 0;
+            // Diagnostic-only, throttled to every 5th occurrence per session so a source stuck
+            // repeatedly running dry doesn't flood the log.
+            if ((++m_concealmentExhaustedCount % 5) == 1) {
+                logLine("playback: session " + std::to_string(m_sessionId) +
+                       " ran out of real packets and exhausted PLC (occurrence #" +
+                       std::to_string(m_concealmentExhaustedCount) + " for this session)");
+            }
             return false;
         }
         ++m_concealmentCount;

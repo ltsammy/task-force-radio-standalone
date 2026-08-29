@@ -75,6 +75,13 @@ private:
     size_t m_stereoFramePos = 0;           // >= m_stereoFrame.size() forces a decode on first render()
     bool m_isPlaying = false;
     int m_concealmentCount = 0;
+    // Diagnostic-only (Log.h): counts how many times THIS session has run out of real packets
+    // and had to fall back to PLC for the full kMaxConcealmentFrames before giving up and going
+    // silent -- a live report of audible "buzzing" heard by some listeners but not others for the
+    // same speaker (ruling out a bad mic) points at something per-listener like jitter/packet loss
+    // specific to each client's own path to the relay, not the transmitted audio itself. Repeated
+    // concealment-exhaustion for one session is the direct signature of that.
+    int m_concealmentExhaustedCount = 0;
     // Fully reconstructed whenever the effect type changes -- each effect owns its own filter/
     // delay/phase state that must never be shared or reset mid-talkspurt (matches the C#
     // reference's EnsureEffectChain).
