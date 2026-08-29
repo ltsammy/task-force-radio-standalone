@@ -69,6 +69,16 @@ std::string CommandProcessor::processSync(const std::string& command,
         return m_state.speakingPair(tokens[1]);
     }
 
+    // Additive, not part of the legacy protocol -- polled by an SQF HUD indicator (voice port
+    // Phase 5's MICMUTE/SPEAKERMUTE keybinds toggle these; nothing before now let SQF read them
+    // back). "01" pair, same shape as speakingPair: char 0 = mic muted, char 1 = speaker muted.
+    if (command == "MUTE_STATE") {
+        std::string result = "00";
+        if (m_voice.isMicMuted()) result[0] = '1';
+        if (m_voice.isSpeakerMuted()) result[1] = '1';
+        return result;
+    }
+
     if (command == "IS_SPEAKING_BULK") {
         const std::vector<std::string> tokens = split(payload, '\t');
         std::string result;

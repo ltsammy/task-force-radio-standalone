@@ -69,6 +69,9 @@ public:
     void setPttHeld(bool held) { m_transmit.setPttHeld(held); }
     void toggleMicMute() { m_transmit.setMicMuted(!m_transmit.isMicMuted()); }
     void toggleSpeakerMute() { m_playback.setMuted(!m_playback.isMuted()); }
+    // Queried by CommandProcessor's MUTE_STATE sync command, for an in-game mute indicator.
+    bool isMicMuted() const { return m_transmit.isMicMuted(); }
+    bool isSpeakerMuted() const { return m_playback.isMuted(); }
 
     // Local radio start/stop beep (self-feedback cue). Extension.cpp calls this on the edges of
     // State::localTxState()'s `active` field -- see senderMain's own edge-detection, since

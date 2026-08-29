@@ -228,6 +228,7 @@ PREP(setRadioOwner);
 PREP(setLrSpeakers);
 PREP(settingForceArray);
 // U
+PREP(updateMuteIndicatorUI);
 PREP(updateSpeakVolumeUI);
 // V
 PREP(vehicleId);

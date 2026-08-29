@@ -913,6 +913,16 @@
                 <English>Always On</English>
                 <German>Immer aktiv</German>
             </Key>
+            <Key ID="STR_TFAR_HUD_MicMuted">
+                <Original>MIC MUTED</Original>
+                <English>MIC MUTED</English>
+                <German>MIKRO STUMM</German>
+            </Key>
+            <Key ID="STR_TFAR_HUD_SpeakerMuted">
+                <Original>SPEAKER MUTED</Original>
+                <English>SPEAKER MUTED</English>
+                <German>TON AUS</German>
+            </Key>
             <Key ID="STR_TFAR_SETTINGS_noTSNotConnectedHint">
                 <English>Hide "Not connected" message</English>
                 <German>Verstecke "Not connected" message</German>
