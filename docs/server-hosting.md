@@ -18,8 +18,17 @@ the mission needs).
 ## 2. Deploy `voice-server`
 
 This is the one piece that needs its own always-on process, separate from the Arma server itself.
-Full instructions, config table, and Coolify-specific steps: [`../voice-server/README.md`](../voice-server/README.md).
-Quick version:
+
+**Windows, no Docker**: this release has `tfrs-voice-server.exe` attached — self-contained
+(bundles its own .NET runtime, nothing to install), run it directly next to your Arma dedicated
+server:
+
+```
+tfrs-voice-server.exe --port 9987 --password <pick one> --max-clients 300
+```
+
+**Linux / Docker**: full instructions, config table, and Coolify-specific steps in
+[`../voice-server/README.md`](../voice-server/README.md). Quick version:
 
 ```bash
 docker run -d --restart unless-stopped -p 9987:9987/udp \
