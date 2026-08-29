@@ -56,6 +56,11 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
     public event Action<LocalTxState>? LocalTxChanged;
     public event Action? ExtensionConnected;
     public event Action? ExtensionDisconnected;
+    /// <summary>A bad/unexpected message from the extension, or an unexpected failure in the read
+    /// loop -- both recovered from automatically (the offending line is skipped, or the connection
+    /// is cycled), but surfaced here so a bug like the one this fixes (one bad line permanently and
+    /// silently killing the whole bridge) can never happen invisibly again.</summary>
+    public event Action<string>? BridgeError;
 
     public AddonBridgeServer()
     {
@@ -89,13 +94,30 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
 
             using var watchdogCts = new CancellationTokenSource();
             var watchdogTask = Task.Run(() => BridgeWatchdogLoopAsync(pipe, watchdogCts.Token));
-            await ReadLoopAsync(pipe, ct);
-            watchdogCts.Cancel();
-            try { await watchdogTask; } catch { /* observed on purpose */ }
+            try
+            {
+                await ReadLoopAsync(pipe, ct);
+            }
+            catch (Exception ex)
+            {
+                // Defense in depth for the broad catch inside ReadLoopAsync's per-line handling:
+                // if anything ever still escapes uncaught, this must not take the accept loop down
+                // with it regardless -- an uncaught exception here previously meant this whole
+                // while loop's Task faulted and stopped for good, so WaitForConnectionAsync was
+                // never called again, no more listening, ever, with nothing logged anywhere (the
+                // extension's reconnect retries had nowhere to land). That is the addon-bridge
+                // "permanent divergence" bug. Recover exactly like an ordinary disconnect instead.
+                BridgeError?.Invoke($"ReadLoopAsync crashed, reconnecting: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                watchdogCts.Cancel();
+                try { await watchdogTask; } catch { /* observed on purpose */ }
 
-            _activePipe = null;
-            ExtensionDisconnected?.Invoke();
-            pipe.Dispose();
+                _activePipe = null;
+                ExtensionDisconnected?.Invoke();
+                pipe.Dispose();
+            }
         }
     }
 
@@ -167,9 +189,18 @@ internal sealed class AddonBridgeServer : IAsyncDisposable
             {
                 HandleLine(line);
             }
-            catch (JsonException)
+            catch (Exception ex)
             {
-                // malformed line from the extension — ignore and keep the connection alive
+                // Was `catch (JsonException)` only -- too narrow. HandleUnits calls
+                // GetInt32()/GetSingle()/GetBoolean() on extension-supplied fields (e.g.
+                // "localTx.range"), which throw FormatException/InvalidOperationException for a
+                // well-formed-JSON-but-wrong-shaped value (e.g. the extension's own NaN/Infinity
+                // guard in json::number() clamps to +-1e12, which is valid JSON but out of Int32
+                // range). Those exception types went uncaught here, which killed this whole loop --
+                // and since AcceptLoopAsync didn't catch around its call to this method either, one
+                // bad line permanently killed the entire accept loop with nothing logged anywhere.
+                // Whatever the cause, skip just this one line and keep the connection alive.
+                BridgeError?.Invoke($"malformed/unexpected line from extension, ignored: {ex.GetType().Name}: {ex.Message}");
             }
         }
     }

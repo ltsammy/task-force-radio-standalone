@@ -118,6 +118,7 @@ public partial class MainWindow : Window
             null => "Addon transmit override cleared — normal PTT/VAD/Always-On applies.",
         }));
         _coordinator.AddonVersionReceived += v => Dispatcher.BeginInvoke(() => Log($"Addon version: {v}"));
+        _coordinator.BridgeError += msg => Dispatcher.BeginInvoke(() => Log($"!!! Addon bridge error (recovered): {msg}"));
         _coordinator.ConnectionLostUnexpectedly += () => Dispatcher.BeginInvoke(() =>
         {
             Log("Connection to server lost — retrying...");

@@ -166,6 +166,13 @@ void State::handleTangent(const std::vector<std::string>& tokens) {
 
     if (pressed) {
         m_txRange = parseArmaNumber(tokens[3]);
+        // Guards against exactly the kind of garbage/"inf" input (parseArmaNumber uses strtof,
+        // which accepts "inf"/"nan") that turned into a permanent, silent voice-client crash: the
+        // voice client's own NaN/Infinity guard (json::number()'s clamp to +-1e12) is still valid
+        // JSON, but nowhere near a sane radio range, and the client parses this field as an Int32.
+        // Clamp to something no real radio range could ever exceed instead of forwarding it as-is.
+        if (!(m_txRange >= 0.0f)) m_txRange = 0.0f;  // also catches NaN (fails every comparison)
+        if (m_txRange > 200000.0f) m_txRange = 200000.0f;  // 200km, generous headroom
         m_txRadioClassname = (tokens.size() > 5) ? tokens[5] : std::string();
         queueLocalMessageLocked("true");
     } else {

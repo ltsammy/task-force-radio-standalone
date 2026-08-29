@@ -66,6 +66,11 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
     /// Purely diagnostic (logged), to catch a client/server/addon version mismatch quickly.</summary>
     public event Action<string>? AddonVersionReceived;
 
+    /// <summary>A bad/unexpected message from the extension, or an unexpected failure in the bridge
+    /// read loop — see AddonBridgeServer.BridgeError. Always already recovered from by the time
+    /// this fires; purely diagnostic.</summary>
+    public event Action<string>? BridgeError;
+
     /// <summary>The Arma extension's transmitOverride, forwarded for logging/diagnostics — see
     /// docs/protocol-ipc-bridge.md's "local" message. `false` blocks ALL transmission (including
     /// Always-On); `true` forces it regardless of mode; `null` clears the override.</summary>
@@ -122,6 +127,7 @@ internal sealed class VoiceSessionCoordinator : IAsyncDisposable
         _bridge.LocalOverrideReceived += v => { _transmit.AddonTransmitOverride = v; AddonOverrideChanged?.Invoke(v); };
         _bridge.LocalUidReceived += OnLocalUidReceived;
         _bridge.AddonVersionReceived += v => AddonVersionReceived?.Invoke(v);
+        _bridge.BridgeError += msg => BridgeError?.Invoke(msg);
         _bridge.LocalTxChanged += state => _network.SendRadioTx(
             state.Active, state.Freq, (ushort)Math.Clamp(state.Range, 0, ushort.MaxValue), state.Sub);
         _bridge.ExtensionConnected += () => ExtensionConnectionChanged?.Invoke(true);
