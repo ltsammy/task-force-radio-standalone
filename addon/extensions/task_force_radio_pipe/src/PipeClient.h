@@ -52,7 +52,9 @@ public:
 private:
     void threadMain();
     bool tryConnect();
-    void closeConnection();
+    // `reason` is also the log-worthiness switch: empty means "don't log this"
+    // (used by the ordinary stop()-triggered close, which isn't a divergence).
+    void closeConnection(const std::string& reason = std::string());
     bool writeAll(const std::string& data);
     void pumpReads();
     void dispatchLine(const std::string& line);
@@ -71,6 +73,12 @@ private:
     std::deque<std::string> m_outQueue;
 
     std::string m_readBuffer;
+
+    // Diagnostics only, touched solely from the pipe I/O thread -- see the
+    // logLine()-related comment in PipeClient.cpp. DWORD avoided here on purpose
+    // (same reasoning as m_pipe above); it's unsigned long on Windows anyway.
+    unsigned m_connectFailCount = 0;
+    unsigned long m_lastWriteError = 0;
 };
 
 }  // namespace tfrs

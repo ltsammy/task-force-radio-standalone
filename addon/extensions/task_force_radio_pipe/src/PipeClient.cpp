@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <chrono>
+#include <cstdio>
 
 #include "Json.h"
 
@@ -16,6 +17,41 @@ constexpr size_t kMaxOutQueue = 64;
 constexpr size_t kMaxReadBuffer = 1 << 20;  // 1 MiB, guards against a broken peer
 constexpr DWORD kPollIntervalMs = 10;
 constexpr DWORD kReconnectIntervalMs = 500;
+
+// Diagnostic-only. The extension otherwise has zero visibility anywhere (no RPT
+// hookup, nothing) into why it thinks the bridge is up or down, which made a
+// real-world divergence between this and the voice client's own belief
+// impossible to root-cause from either side alone -- the voice client already
+// logs its own connect/disconnect. Written next to its crash.log so both are in
+// one place. Best-effort: any failure here must never affect the actual bridge
+// connection, so every error is swallowed.
+void logLine(const std::string& message) {
+    wchar_t appData[MAX_PATH];
+    const DWORD len = GetEnvironmentVariableW(L"APPDATA", appData, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH) return;
+
+    std::wstring dir(appData);
+    dir += L"\\Tfrs";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    dir += L"\\VoiceClient";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    dir += L"\\extension.log";
+
+    HANDLE file = CreateFileW(dir.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                               nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return;
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    char prefix[32];
+    snprintf(prefix, sizeof(prefix), "[%04d-%02d-%02d %02d:%02d:%02d] ", st.wYear, st.wMonth,
+             st.wDay, st.wHour, st.wMinute, st.wSecond);
+
+    const std::string line = std::string(prefix) + message + "\r\n";
+    DWORD written = 0;
+    WriteFile(file, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
+    CloseHandle(file);
+}
 
 }  // namespace
 
@@ -61,7 +97,18 @@ bool PipeClient::tryConnect() {
                                 OPEN_EXISTING,
                                 0,  // blocking, non overlapped
                                 nullptr);
-    if (handle == INVALID_HANDLE_VALUE) return false;
+    if (handle == INVALID_HANDLE_VALUE) {
+        // Logged sparingly (~every 10s at the 500ms retry cadence) so a voice
+        // client that simply hasn't been launched yet doesn't spam the log, while
+        // a reconnect that's stuck still leaves a trail of *why* CreateFileW keeps
+        // failing -- ERROR_PIPE_BUSY (231) points at the voice client still
+        // holding the single pipe instance open; anything else points elsewhere.
+        if ((++m_connectFailCount % 20) == 1) {
+            logLine("reconnect attempt failed, error=" + std::to_string(GetLastError()));
+        }
+        return false;
+    }
+    m_connectFailCount = 0;
 
     DWORD mode = PIPE_READMODE_BYTE;
     // Failure is not fatal: byte mode is the default for a .NET
@@ -71,17 +118,21 @@ bool PipeClient::tryConnect() {
     m_pipe = handle;
     m_readBuffer.clear();
     m_connected.store(true);
+    logLine("connected to voice client");
     return true;
 }
 
-void PipeClient::closeConnection() {
+void PipeClient::closeConnection(const std::string& reason) {
     HANDLE handle = static_cast<HANDLE>(m_pipe);
     if (handle != INVALID_HANDLE_VALUE && handle != nullptr) {
         CloseHandle(handle);
     }
     m_pipe = INVALID_HANDLE_VALUE;
-    m_connected.store(false);
+    const bool wasConnected = m_connected.exchange(false);
     m_readBuffer.clear();
+    // Only a real connected->disconnected transition is logged -- stop()'s
+    // shutdown close passes no reason and must stay silent.
+    if (wasConnected && !reason.empty()) logLine("bridge pipe lost: " + reason);
 }
 
 bool PipeClient::writeAll(const std::string& data) {
@@ -92,8 +143,14 @@ bool PipeClient::writeAll(const std::string& data) {
     while (written < data.size()) {
         DWORD chunk = 0;
         const DWORD toWrite = static_cast<DWORD>(data.size() - written);
-        if (!WriteFile(handle, data.data() + written, toWrite, &chunk, nullptr)) return false;
-        if (chunk == 0) return false;
+        if (!WriteFile(handle, data.data() + written, toWrite, &chunk, nullptr)) {
+            m_lastWriteError = GetLastError();
+            return false;
+        }
+        if (chunk == 0) {
+            m_lastWriteError = 0;
+            return false;
+        }
         written += chunk;
     }
     return true;
@@ -106,7 +163,8 @@ void PipeClient::pumpReads() {
     for (;;) {
         DWORD available = 0;
         if (!PeekNamedPipe(handle, nullptr, 0, nullptr, &available, nullptr)) {
-            closeConnection();
+            const DWORD err = GetLastError();
+            closeConnection("PeekNamedPipe failed, error=" + std::to_string(err));
             return;
         }
         if (available == 0) break;
@@ -117,7 +175,8 @@ void PipeClient::pumpReads() {
 
         DWORD read = 0;
         if (!ReadFile(handle, buffer, toRead, &read, nullptr) || read == 0) {
-            closeConnection();
+            const DWORD err = GetLastError();
+            closeConnection("ReadFile failed, error=" + std::to_string(err));
             return;
         }
 
@@ -179,7 +238,7 @@ void PipeClient::threadMain() {
         if (ok && haveUnits) ok = writeAll(unitsLine);
 
         if (!ok) {
-            closeConnection();
+            closeConnection("WriteFile failed, error=" + std::to_string(m_lastWriteError));
             Sleep(kReconnectIntervalMs);
             continue;
         }

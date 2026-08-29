@@ -43,7 +43,7 @@ the VC++ redistributable can still load the DLL.
 | `src/Extension.cpp` | `RVExtension` export, `DllMain`, snapshot thread (~15Hz) |
 | `src/CommandProcessor.*` | parser/dispatcher for all `callExtension` commands |
 | `src/State.*` | client registry, local state, antennas, speakers, **audibility solver** |
-| `src/PipeClient.*` | named-pipe client with reconnect, line framing, send coalescing |
+| `src/PipeClient.*` | named-pipe client with reconnect, line framing, send coalescing; logs connect/disconnect (with the Win32 error and which call failed) to `%APPDATA%\Tfrs\VoiceClient\extension.log`, next to the voice client's own `crash.log` |
 | `src/Json.*` | minimal JSON parser/writer (no external library) |
 | `src/Util.*` | vector/angle math, Arma parsing, `volumeAttenuation` |
 
