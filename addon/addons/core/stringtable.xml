@@ -923,16 +923,6 @@
                 <English>Removes background noise from your microphone before it's sent. Disable if it causes audible artifacts on your specific microphone.</English>
                 <German>Entfernt Hintergrundgeräusche von deinem Mikrofon, bevor sie gesendet werden. Deaktivieren, falls es bei deinem Mikrofon hörbare Artefakte verursacht.</German>
             </Key>
-            <Key ID="STR_TFAR_HUD_MicMuted">
-                <Original>MIC MUTED</Original>
-                <English>MIC MUTED</English>
-                <German>MIKRO STUMM</German>
-            </Key>
-            <Key ID="STR_TFAR_HUD_SpeakerMuted">
-                <Original>SPEAKER MUTED</Original>
-                <English>SPEAKER MUTED</English>
-                <German>TON AUS</German>
-            </Key>
             <Key ID="STR_TFAR_SETTINGS_noTSNotConnectedHint">
                 <English>Hide "Not connected" message</English>
                 <German>Verstecke "Not connected" message</German>

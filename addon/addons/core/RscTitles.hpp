@@ -58,10 +58,15 @@ class RscTitles
                 w="(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])";
                 h="(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])";
             };
-            // Mic icon shown only while actively transmitting (direct speech or radio), right
-            // next to the volume/range icon rather than stacked with the mute-hint boxes below --
-            // hidden by default (see onLoad above), fnc_updateMuteIndicatorUI.sqf polls MUTE_STATE's
-            // 3rd character (TransmitController's real gate decision, not just "PTT held").
+            // Transmitting / mic-mute / speaker-mute status icons, a row immediately left of the
+            // volume/range icon. All three default their position OFF the volume icon's own
+            // resolved x/y/w (not independent hardcoded coordinates) so they stay correctly
+            // grouped with it even if the user has dragged/resized the volume icon via the
+            // IGUI_grid_TFAR_Volume_* profileNamespace vars -- each still keeps its own
+            // IGUI_grid_TFAR_*_X/Y/W override slot for independent repositioning too.
+            // Hidden by default (see onLoad above); fnc_updateMuteIndicatorUI.sqf polls
+            // MUTE_STATE's 3 characters (mic muted / speaker muted / actually transmitting --
+            // TransmitController's real gate decision, not just "PTT held") to show each one.
             class TransmittingIndicator: RscPictureKeepAspect {
                 idc = 1203;
                 type = 0;
@@ -71,39 +76,38 @@ class RscTitles
                 font = "PuristaMedium";
                 sizeEx = "(((((safezoneW / safezoneH) min 1.2) / 1.2) / 25) * 0.8)";
                 text = QPATHTOF(ui\tfar_mic_active.paa);
-                x="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_X"",	0.85 * safezoneW + safezoneX - 2.8 * (((safezoneW / safezoneH) min 1.2) / 50)])";
-                y="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_Y"",	0.9 * safezoneH + safezoneY])";
-                w="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])";
-                h="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])";
+                x="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_X"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_X"",	0.85 * safezoneW + safezoneX]) - 1.3 * (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
+                y="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_Y"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_Y"",	0.9 * safezoneH + safezoneY])])";
+                w="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_W"",  (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
+                h="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_W"",  (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
             };
-            // Mic-mute / speaker-mute hint, stacked above the volume icon. Hidden by default
-            // (see onLoad above); fnc_updateMuteIndicatorUI.sqf shows each one only while that
-            // specific mute is actually active.
-            class MicMuteIndicator: RscText {
+            class MicMuteIndicator: RscPictureKeepAspect {
                 idc = 1201;
-                style = "0x02 + 0x800";
-                colorText[] = {1, 1, 1, 1};
-                colorBackground[] = {0.6, 0.1, 0.1, 0.7};
-                font = "PuristaBold";
-                text = "$STR_TFAR_HUD_MicMuted";
-                sizeEx = "(((((safezoneW / safezoneH) min 1.2) / 1.2) / 32) * 0.8)";
-                x="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_X"",	0.70 * safezoneW + safezoneX])";
-                y="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_Y"",	0.84 * safezoneH + safezoneY])";
-                w="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_W"",  0.14 * safezoneW])";
-                h="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_H"",  2.4 * (((safezoneW / safezoneH) min 1.2) / 50)])";
+                type = 0;
+                style = "0x30 + 0x800";
+                colorText[] = { 1, 1, 1, 1 };
+                colorBackground[] = {0, 0, 0, 0};
+                font = "PuristaMedium";
+                sizeEx = "(((((safezoneW / safezoneH) min 1.2) / 1.2) / 25) * 0.8)";
+                text = QPATHTOF(ui\tfar_mic_muted.paa);
+                x="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_X"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_X"",	0.85 * safezoneW + safezoneX]) - 2.6 * (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
+                y="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_Y"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_Y"",	0.9 * safezoneH + safezoneY])])";
+                w="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_W"",  (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
+                h="(profilenamespace getvariable [""IGUI_grid_TFAR_MicMute_W"",  (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
             };
-            class SpeakerMuteIndicator: RscText {
+            class SpeakerMuteIndicator: RscPictureKeepAspect {
                 idc = 1202;
-                style = "0x02 + 0x800";
-                colorText[] = {1, 1, 1, 1};
-                colorBackground[] = {0.6, 0.1, 0.1, 0.7};
-                font = "PuristaBold";
-                text = "$STR_TFAR_HUD_SpeakerMuted";
-                sizeEx = "(((((safezoneW / safezoneH) min 1.2) / 1.2) / 32) * 0.8)";
-                x="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_X"",	0.85 * safezoneW + safezoneX])";
-                y="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_Y"",	0.84 * safezoneH + safezoneY])";
-                w="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_W"",  0.14 * safezoneW])";
-                h="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_H"",  2.4 * (((safezoneW / safezoneH) min 1.2) / 50)])";
+                type = 0;
+                style = "0x30 + 0x800";
+                colorText[] = { 1, 1, 1, 1 };
+                colorBackground[] = {0, 0, 0, 0};
+                font = "PuristaMedium";
+                sizeEx = "(((((safezoneW / safezoneH) min 1.2) / 1.2) / 25) * 0.8)";
+                text = QPATHTOF(ui\tfar_speaker_muted.paa);
+                x="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_X"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_X"",	0.85 * safezoneW + safezoneX]) - 3.9 * (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
+                y="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_Y"",	(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_Y"",	0.9 * safezoneH + safezoneY])])";
+                w="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_W"",  (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
+                h="(profilenamespace getvariable [""IGUI_grid_TFAR_SpeakerMute_W"",  (profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])])";
             };
         };
     };
