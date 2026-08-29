@@ -4,10 +4,10 @@
   Name: TFAR_fnc_updateMuteIndicatorUI
 
   Author: Claude
-    Shows/hides the mic-mute and speaker-mute HUD hint based on the extension's current state.
-    Polled periodically (see fnc_ClientInit.sqf) rather than event-driven, since mute state can
-    also change from outside the mission (e.g. reconnecting), not just the MicMute/SpeakerMute
-    keybinds.
+    Shows/hides the mic-mute, speaker-mute and transmitting HUD hints based on the extension's
+    current state. Polled periodically (see fnc_ClientInit.sqf) rather than event-driven, since
+    mute state can also change from outside the mission (e.g. reconnecting), not just the
+    MicMute/SpeakerMute keybinds.
 
   Arguments:
     None
@@ -28,3 +28,4 @@ private _state = "task_force_radio_pipe" callExtension "MUTE_STATE";
 
 (_display displayCtrl 1201) ctrlShow ((_state select [0, 1]) == "1");
 (_display displayCtrl 1202) ctrlShow ((_state select [1, 1]) == "1");
+(_display displayCtrl 1203) ctrlShow ((_state select [2, 1]) == "1");

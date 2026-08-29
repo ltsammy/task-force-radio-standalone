@@ -70,12 +70,15 @@ std::string CommandProcessor::processSync(const std::string& command,
     }
 
     // Additive, not part of the legacy protocol -- polled by an SQF HUD indicator (voice port
-    // Phase 5's MICMUTE/SPEAKERMUTE keybinds toggle these; nothing before now let SQF read them
-    // back). "01" pair, same shape as speakingPair: char 0 = mic muted, char 1 = speaker muted.
+    // Phase 5's MICMUTE/SPEAKERMUTE keybinds toggle the first two; nothing before now let SQF
+    // read any of this back). Same shape as speakingPair: char 0 = mic muted, char 1 = speaker
+    // muted, char 2 = currently transmitting (direct speech OR radio -- isTransmitting() reflects
+    // TransmitController's actual gate decision, not just "PTT key held").
     if (command == "MUTE_STATE") {
-        std::string result = "00";
+        std::string result = "000";
         if (m_voice.isMicMuted()) result[0] = '1';
         if (m_voice.isSpeakerMuted()) result[1] = '1';
+        if (m_voice.isTransmitting()) result[2] = '1';
         return result;
     }
 

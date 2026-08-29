@@ -42,7 +42,7 @@ class RscTitles
         // fnc_ClientInit.sqf) only turns them on when actually muted, but that first poll can't
         // land before this onLoad runs, so set the correct default here rather than flash both
         // on at mission start.
-        onLoad = QUOTE(uiNamespace setVariable [ARR_2(QUOTE(QGVAR(HUDVolumeIndicatorRscDisplay)),_this select 0)]; ((_this select 0) displayCtrl 1201) ctrlShow false; ((_this select 0) displayCtrl 1202) ctrlShow false;);
+        onLoad = QUOTE(uiNamespace setVariable [ARR_2(QUOTE(QGVAR(HUDVolumeIndicatorRscDisplay)),_this select 0)]; ((_this select 0) displayCtrl 1201) ctrlShow false; ((_this select 0) displayCtrl 1202) ctrlShow false; ((_this select 0) displayCtrl 1203) ctrlShow false;);
         class controls {
             class VolumeIndicator: RscPictureKeepAspect {
                 idc= 1112;
@@ -57,6 +57,24 @@ class RscTitles
                 y="(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_Y"",	0.9 * safezoneH + safezoneY])";
                 w="(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])";
                 h="(profilenamespace getvariable [""IGUI_grid_TFAR_Volume_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])";
+            };
+            // Mic icon shown only while actively transmitting (direct speech or radio), right
+            // next to the volume/range icon rather than stacked with the mute-hint boxes below --
+            // hidden by default (see onLoad above), fnc_updateMuteIndicatorUI.sqf polls MUTE_STATE's
+            // 3rd character (TransmitController's real gate decision, not just "PTT held").
+            class TransmittingIndicator: RscPictureKeepAspect {
+                idc = 1203;
+                type = 0;
+                style = "0x30 + 0x800";
+                colorText[] = { 1, 1, 1, 1 };
+                colorBackground[] = {0, 0, 0, 0};
+                font = "PuristaMedium";
+                sizeEx = "(((((safezoneW / safezoneH) min 1.2) / 1.2) / 25) * 0.8)";
+                text = QPATHTOF(ui\tfar_mic_active.png);
+                x="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_X"",	0.85 * safezoneW + safezoneX - 2.8 * (((safezoneW / safezoneH) min 1.2) / 50)])";
+                y="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_Y"",	0.9 * safezoneH + safezoneY])";
+                w="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])";
+                h="(profilenamespace getvariable [""IGUI_grid_TFAR_Transmitting_W"",  2 * (((safezoneW / safezoneH) min 1.2) / 50)])";
             };
             // Mic-mute / speaker-mute hint, stacked above the volume icon. Hidden by default
             // (see onLoad above); fnc_updateMuteIndicatorUI.sqf shows each one only while that
