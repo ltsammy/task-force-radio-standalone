@@ -1,13 +1,15 @@
 // Central, mutex protected state of the extension.
 //
-// Fed by the legacy SQF protocol (docs/protocol-extension-legacy.md) and by
-// the bridge (docs/protocol-ipc-bridge.md).  Produces the `units` snapshot
-// described in docs/dsp-audio-pipeline.md section 6.
+// Fed by the legacy SQF protocol (docs/protocol-extension-legacy.md) and, since the native voice
+// port's Phase 4, read directly by Extension.cpp's tick to drive src/Voice/VoiceSession -- no more
+// named-pipe bridge/JSON in between (see docs/dsp-audio-pipeline.md section 6 for what the
+// snapshot itself means; the wire format it used to travel over is retired).
 #pragma once
 
 #include <chrono>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -16,9 +18,6 @@
 #include "Util.h"
 
 namespace tfrs {
-namespace json {
-class Value;
-}
 
 using Clock = std::chrono::steady_clock;
 
@@ -129,17 +128,45 @@ public:
     // (answered as "NEEDCFG" to DFRAME).
     bool needsConfig();
 
-    // -- bridge -------------------------------------------------------------
-    void onBridgeMessage(const json::Value& message);
-    void onBridgeConnected();
-    void onBridgeDisconnected();
+    // -- native voice port (src/Voice/VoiceSession) --------------------------
+    // Extension.cpp's tick is the sole integration point between this legacy/solver module and
+    // src/Voice/ -- neither depends on the other's headers, keeping the dependency graph one-way.
 
-    // Builds the `units` line (without trailing '\n'). Returns an empty string
-    // when nothing changed in a way that is worth sending.
-    std::string buildUnitsMessage();
+    // Runs the full audibility solver (same logic buildUnitsMessage used to serialize to JSON) and
+    // returns one row per currently-audible remote unit, `uid` already resolved.
+    std::vector<AudibleUnit> computeAudibleUnits();
 
-    // Pending `local` message, or an empty string.
-    std::string takePendingLocalMessage();
+    // Empty until the "UID" command (fnc_sendPlayerInfo.sqf) has run for us -- deliberately NOT
+    // falling back to the nickname the way a remote unit's uid does, so a caller can tell "not
+    // known yet" apart from a real UID and keep waiting instead of connecting under the wrong
+    // identity.
+    std::string myUid() const;
+    std::string myNickname() const;
+
+    // Outer optional: whether the override changed since the last call (nullopt = no change,
+    // nothing to do). Inner optional: the new value, or nullopt to clear any override.
+    std::optional<std::optional<bool>> takeTransmitOverride();
+
+    void setLocalTransmitting(bool transmitting);
+    // uid resolved to a nickname via the UID-command-populated roster; no-op if unknown. Mirrors
+    // the old bridge's "tx" message semantics exactly, including marking the sender as "talking"
+    // for IS_SPEAKING.
+    void setRemoteTx(const std::string& uid, bool active, const std::string& freq, float range,
+                     const std::string& subtype);
+    // Drives TS_INFO PING -- true once VoiceSession reports the voice-server connection as up.
+    void setVoiceConnected(bool connected);
+
+    // What WE are currently transmitting, for VoiceSession to relay via RadioTxUpdate every tick
+    // (unconditionally, not just on change -- the receiving side's 1.5s expiry depends on a steady
+    // refresh stream to self-heal a single dropped UDP packet). freq/range/subtype are meaningless
+    // when active is false.
+    struct LocalTxState {
+        bool active = false;
+        std::string freq;
+        float range = 0.0f;
+        std::string subtype;
+    };
+    LocalTxState localTxState() const;
 
 private:
     // All private helpers below assume m_mutex is already held.
@@ -149,7 +176,7 @@ private:
     float antennaLoss(const Vec3& from, float maxDistanceToAnt, const Vec3& to) const;
     bool configBool(const char* key, bool fallback) const;
     float configFloat(const char* key, float fallback) const;
-    void queueLocalMessageLocked(const char* value);
+    void queueLocalMessageLocked(std::optional<bool> value);
     void addAudibleForClientLocked(const RemoteClient& me, const RemoteClient& other,
                                    Clock::time_point now, std::vector<AudibleUnit>& out);
     std::string uidForLocked(const std::string& nickname) const;
@@ -182,14 +209,9 @@ private:
     std::vector<AntennaData> m_antennas;
     std::unordered_map<std::string, std::string> m_config;
 
-    // Bridge state.
-    bool m_bridgeConnected = false;
-    bool m_haveStatus = false;
-    bool m_statusConnected = false;
+    // Voice-connection state, set by Extension.cpp's tick from VoiceSession.
+    bool m_voiceConnected = false;
     bool m_statusTransmitting = false;
-    std::string m_serverName = "TFRS Voice Server";
-    std::string m_serverUid = "TFRS";
-    std::string m_channelName = "TFRS";
     std::unordered_map<std::string, std::string> m_nameToUid;
     std::unordered_set<std::string> m_talkingNames;
     std::unordered_map<std::string, RemoteTx> m_remoteTx;
@@ -209,7 +231,7 @@ private:
     bool m_lrIncoming = false;
     bool m_lrIncomingPending = false;
 
-    std::string m_pendingLocalMessage;
+    std::optional<std::optional<bool>> m_pendingTransmitOverride;
 };
 
 }  // namespace tfrs

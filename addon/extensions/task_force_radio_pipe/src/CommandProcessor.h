@@ -10,11 +10,14 @@
 namespace tfrs {
 
 class State;
-class PipeClient;
+
+namespace voice {
+class VoiceSession;
+}
 
 class CommandProcessor {
 public:
-    CommandProcessor(State& state, PipeClient& pipe) : m_state(state), m_pipe(pipe) {}
+    CommandProcessor(State& state, voice::VoiceSession& voice) : m_state(state), m_voice(voice) {}
 
     // Returns the exact string that has to be handed back to Arma.
     std::string process(const std::string& input);
@@ -24,7 +27,7 @@ private:
     void processAsync(const std::string& command, const std::string& payload);
 
     State& m_state;
-    PipeClient& m_pipe;
+    voice::VoiceSession& m_voice;
 };
 
 }  // namespace tfrs

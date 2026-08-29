@@ -5,34 +5,34 @@
 // NOT export RVExtensionVersion / RVExtensionArgs, so neither do we).
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstring>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "CommandProcessor.h"
-#include "Json.h"
-#include "PipeClient.h"
 #include "State.h"
 #include "Voice/VoiceSession.h"
 
 namespace {
 
-// ~15 Hz snapshot rate, well inside the "every 50-100 ms" the bridge protocol
-// asks for while radio traffic is active.
+// ~15 Hz snapshot rate -- unchanged from the retired bridge protocol's own cadence, still well
+// inside "every 50-100 ms" for radio-transmit-relay responsiveness.
 const DWORD kSnapshotIntervalMs = 66;
 
 // Everything is heap allocated and deliberately never freed: running static
 // destructors (or joining threads) while the loader lock is held during
 // DLL_PROCESS_DETACH is a classic source of shutdown deadlocks.
 tfrs::State* g_state = nullptr;
-tfrs::PipeClient* g_pipe = nullptr;
 tfrs::CommandProcessor* g_processor = nullptr;
 std::thread* g_senderThread = nullptr;
 // Native voice port (mic capture, Opus, UDP networking to Tfrs.VoiceServer, playback/mixing) --
-// see the port's plan doc. Phase 2: started unconditionally alongside everything else, entirely
-// independent of the pipe/SQF-facing state above until Phase 4 wires them together.
+// see the voice port plan doc. Owns its own threads; senderMain() below is the only place this
+// module and State ever talk to each other.
 tfrs::voice::VoiceSession* g_voice = nullptr;
 
 std::once_flag g_initFlag;
@@ -40,29 +40,58 @@ std::atomic<bool> g_senderRunning(false);
 std::atomic<bool> g_shuttingDown(false);
 std::atomic<bool> g_ready(false);
 
+// Maps State's `fx` string convention (see subtypeToFx/AudibleUnit in State.cpp) onto Voice/'s
+// SourceEffect enum. Lives here, not in State.h or Voice/, because this file is the one place
+// that's allowed to depend on both.
+tfrs::voice::SourceEffect parseSourceEffect(const char* fx) {
+    using tfrs::voice::SourceEffect;
+    if (std::strcmp(fx, "sw") == 0) return SourceEffect::Sw;
+    if (std::strcmp(fx, "lr") == 0) return SourceEffect::Lr;
+    if (std::strcmp(fx, "airborne") == 0) return SourceEffect::Airborne;
+    if (std::strcmp(fx, "dd") == 0) return SourceEffect::Dd;
+    if (std::strcmp(fx, "phone") == 0) return SourceEffect::Phone;
+    if (std::strcmp(fx, "speaker") == 0) return SourceEffect::Speaker;
+    if (std::strcmp(fx, "intercom") == 0) return SourceEffect::Intercom;
+    return SourceEffect::Direct;  // "direct", or anything unrecognized
+}
+
 void senderMain() {
-    bool lastConnected = false;
     while (g_senderRunning.load()) {
-        const bool connected = g_pipe->isConnected();
-        if (connected != lastConnected) {
-            if (connected) {
-                g_state->onBridgeConnected();
-            } else {
-                g_state->onBridgeDisconnected();
-            }
-            lastConnected = connected;
+        g_state->setVoiceConnected(g_voice->isConnected());
+        g_state->setLocalTransmitting(g_voice->isTransmitting());
+        // Idempotent to call every tick even once resolved -- VoiceNetworkClient's setIdentity is
+        // a cheap mutex-guarded assignment, and this is what lets the placeholder identity
+        // VoiceSession::start() seeds itself with get superseded the moment getPlayerUID resolves.
+        g_voice->setIdentity(g_state->myUid(), g_state->myNickname());
+
+        // Radio-transmit relay: what WE'RE sending (unconditionally every tick -- see
+        // VoiceSession::sendRadioTx's doc comment) and what we've learned OTHERS are sending
+        // (feeds back into State's audibility solver via setRemoteTx).
+        const tfrs::State::LocalTxState localTx = g_state->localTxState();
+        const uint16_t clampedRange =
+            static_cast<uint16_t>(std::clamp(localTx.range, 0.0f, 65535.0f));
+        g_voice->sendRadioTx(localTx.active, localTx.freq, clampedRange, localTx.subtype);
+        for (const tfrs::voice::RadioTxInfo& tx : g_voice->currentRadioTx()) {
+            g_state->setRemoteTx(tx.uid, tx.active, tx.freq, static_cast<float>(tx.range), tx.subtype);
         }
 
-        if (connected) {
-            std::string local = g_state->takePendingLocalMessage();
-            if (!local.empty()) {
-                local += '\n';
-                g_pipe->sendLine(local);
-            }
-            std::string units = g_state->buildUnitsMessage();
-            units += '\n';
-            g_pipe->setUnitsMessage(units);
+        // Transmit override: no pending change -> nothing to do; a change to "no override" means
+        // normal PTT/VAD/AlwaysOn gating applies again; a change to true/false forces/blocks it.
+        const std::optional<std::optional<bool>> overrideChange = g_state->takeTransmitOverride();
+        if (overrideChange.has_value()) {
+            const std::optional<bool>& newOverride = *overrideChange;
+            g_voice->setAddonOverride(newOverride.has_value(), newOverride.value_or(false));
         }
+
+        // The audibility solver's per-tick output, translated and pushed into playback.
+        const std::vector<tfrs::AudibleUnit> units = g_state->computeAudibleUnits();
+        std::vector<tfrs::voice::AudibilityUpdate> updates;
+        updates.reserve(units.size());
+        for (const tfrs::AudibleUnit& unit : units) {
+            updates.push_back(tfrs::voice::AudibilityUpdate{
+                unit.uid, unit.gain, unit.az, unit.muted, parseSourceEffect(unit.fx), unit.err});
+        }
+        g_voice->applyAudibility(updates);
 
         Sleep(kSnapshotIntervalMs);
     }
@@ -70,15 +99,12 @@ void senderMain() {
 
 void initialize() {
     g_state = new tfrs::State();
-    g_pipe = new tfrs::PipeClient();
-    g_processor = new tfrs::CommandProcessor(*g_state, *g_pipe);
+    g_voice = new tfrs::voice::VoiceSession();
+    g_processor = new tfrs::CommandProcessor(*g_state, *g_voice);
 
-    g_pipe->start([](const tfrs::json::Value& message) { g_state->onBridgeMessage(message); });
+    g_voice->start();
     g_senderRunning.store(true);
     g_senderThread = new std::thread(senderMain);
-
-    g_voice = new tfrs::voice::VoiceSession();
-    g_voice->start();
 
     g_ready.store(true);
 }
@@ -122,12 +148,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID /*reserved*/) {
             DisableThreadLibraryCalls(hModule);
             break;
         case DLL_PROCESS_DETACH:
-            // Only flag the shutdown. Joining threads inside DllMain would
-            // deadlock on the loader lock; Arma never unloads the extension so
-            // the OS reclaims everything at process exit.
+            // Only flag the shutdown -- for g_senderThread same as always, and now also for
+            // g_voice's own threads (VoiceNetworkClient/WasapiCaptureEngine/PlaybackMixer), none
+            // of which are joined here on purpose. Joining inside DllMain would deadlock on the
+            // loader lock; Arma never unloads the extension so the OS reclaims everything (open
+            // sockets, WASAPI handles, all of it) at process exit regardless.
             g_shuttingDown.store(true);
             g_senderRunning.store(false);
-            if (g_pipe != nullptr) g_pipe->stop(false);
             break;
         default:
             break;

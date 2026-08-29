@@ -6,7 +6,6 @@
 
 #include <opus.h>
 
-#include "Json.h"
 #include "Version.h"
 
 namespace tfrs {
@@ -150,7 +149,7 @@ void State::handleFreq(const std::vector<std::string>& tokens) {
     m_speakerDistance = parseArmaNumber(tokens[10]);
 
     // Respawned: lift the mute that KILLED installed.
-    if (!wasAlive && m_alive) queueLocalMessageLocked("null");
+    if (!wasAlive && m_alive) queueLocalMessageLocked(std::nullopt);
 }
 
 void State::handleTangent(const std::vector<std::string>& tokens) {
@@ -176,11 +175,11 @@ void State::handleTangent(const std::vector<std::string>& tokens) {
         if (!(m_txRange >= 0.0f)) m_txRange = 0.0f;  // also catches NaN (fails every comparison)
         if (m_txRange > 200000.0f) m_txRange = 200000.0f;  // 200km, generous headroom
         m_txRadioClassname = (tokens.size() > 5) ? tokens[5] : std::string();
-        queueLocalMessageLocked("true");
+        queueLocalMessageLocked(true);
     } else {
         m_txRange = 0.0f;
         m_txRadioClassname.clear();
-        queueLocalMessageLocked("null");
+        queueLocalMessageLocked(std::nullopt);
     }
 }
 
@@ -241,7 +240,7 @@ void State::handleKilled(const std::string& nickname) {
         m_txRange = 0.0f;
         m_txFrequency.clear();
         m_txRadioClassname.clear();
-        queueLocalMessageLocked("false");
+        queueLocalMessageLocked(false);
     }
 }
 
@@ -263,7 +262,7 @@ void State::handleReleaseAllTangents(const std::string& nickname) {
     m_txRange = 0.0f;
     m_txFrequency.clear();
     m_txRadioClassname.clear();
-    queueLocalMessageLocked("null");
+    queueLocalMessageLocked(std::nullopt);
 }
 
 void State::handleAddRadioTowers(const std::string& payload) {
@@ -332,7 +331,7 @@ void State::handleMissionEnd() {
     m_alive = false;
     m_haveConfig = false;
     m_configRequestedAt = Clock::time_point();
-    queueLocalMessageLocked("null");
+    queueLocalMessageLocked(std::nullopt);
 }
 
 std::string State::speakingPair(const std::string& nickname) const {
@@ -362,22 +361,19 @@ std::string State::speakingPair(const std::string& nickname) const {
 
 std::string State::tsInfo(const std::string& sub) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (sub == "SERVER") return m_serverName;
-    if (sub == "SERVERUID") return m_serverUid;
-    if (sub == "CHANNEL") return m_channelName;
+    // SERVER/SERVERUID/CHANNEL are fixed: the voice-server relay has no concept of named
+    // servers/channels (see docs/protocol-network.md) -- these were already vestigial even under
+    // the old bridge, which never actually populated them from the real C# server either.
+    if (sub == "SERVER") return "TFRS Voice Server";
+    if (sub == "SERVERUID") return "TFRS";
+    if (sub == "CHANNEL") return "TFRS";
     if (sub == "CHANNELID") return "0";  // no channel concept in the new server
     if (sub == "VERSION") return kPluginVersion;
     // Debug-only smoke test for the vendored libopus link (Phase 1 of the native voice port) --
     // not part of the legacy protocol, gives a trivial callExtension-based way to confirm the
     // codec actually linked before any code depends on it.
     if (sub == "OPUSVER") return opus_get_version_string();
-    if (sub == "PING") {
-        // Answered from the last `status` we received. Before the first status
-        // arrives a live pipe is treated as good enough.
-        if (!m_bridgeConnected) return std::string();
-        if (m_haveStatus && !m_statusConnected) return std::string();
-        return "PONG";
-    }
+    if (sub == "PING") return m_voiceConnected ? "PONG" : std::string();
     return "FAIL";
 }
 
@@ -395,146 +391,71 @@ bool State::needsConfig() {
 }
 
 // ---------------------------------------------------------------------------
-// Bridge
+// Native voice port (src/Voice/VoiceSession) -- see State.h's class-level comment.
 // ---------------------------------------------------------------------------
 
-void State::onBridgeConnected() {
+std::string State::myUid() const {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_bridgeConnected = true;
-    // Re-request the configuration after a (re)connect, as required by
-    // docs/protocol-extension-legacy.md.
-    m_haveConfig = false;
-    m_configRequestedAt = Clock::time_point();
-    // Re-announce the current transmit override so a restarted voice client
-    // does not start from a stale assumption.
-    queueLocalMessageLocked(!m_alive ? "false" : (m_tangentPressed ? "true" : "null"));
+    if (m_myNickname.empty()) return std::string();
+    std::unordered_map<std::string, std::string>::const_iterator it = m_nameToUid.find(m_myNickname);
+    return it != m_nameToUid.end() ? it->second : std::string();
 }
 
-void State::onBridgeDisconnected() {
+std::string State::myNickname() const {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_bridgeConnected = false;
-    m_haveStatus = false;
-    m_statusConnected = false;
-    m_statusTransmitting = false;
-    m_talkingNames.clear();
-    m_remoteTx.clear();
-    m_receivingFrom.clear();
-    m_receivingAnyRadio = false;
+    return m_myNickname;
 }
 
-void State::onBridgeMessage(const json::Value& message) {
-    const std::string type = message.getString("t");
-    if (type.empty()) return;
-
+void State::setLocalTransmitting(bool transmitting) {
     std::lock_guard<std::mutex> lock(m_mutex);
-
-    if (type == "status") {
-        m_haveStatus = true;
-        m_statusConnected = message.getBool("connected", false);
-        m_statusTransmitting = message.getBool("transmitting", false);
-        const std::string serverName = message.getString("serverName");
-        if (!serverName.empty()) m_serverName = serverName;
-        const std::string serverUid = message.getString("serverUid");
-        if (!serverUid.empty()) m_serverUid = serverUid;
-        const std::string channelName = message.getString("channelName");
-        if (!channelName.empty()) m_channelName = channelName;
-        return;
-    }
-
-    if (type == "roster") {
-        // Merge only, never clear: nickname->UID is now populated authoritatively from Arma
-        // itself (see handleUid, "UID" in the legacy pipe) via getPlayerUID, which cannot collide
-        // between players. This message is optional/best-effort on top of that -- clearing here
-        // would let a stale or name-colliding roster push overwrite a correct mapping.
-        const json::Value* clients = message.find("clients");
-        if (!clients || !clients->isArray()) return;
-        for (size_t i = 0; i < clients->items.size(); ++i) {
-            const json::Value& entry = clients->items[i];
-            if (!entry.isObject()) continue;
-            const std::string uid = entry.getString("uid");
-            const std::string name = convertNickname(entry.getString("name"));
-            if (!name.empty() && !uid.empty()) m_nameToUid[name] = uid;
-            // Optional extension: a per-client talking flag. Without it the
-            // extension cannot answer IS_SPEAKING for remote players.
-            if (!name.empty() && entry.getBool("talking", false)) m_talkingNames.insert(name);
-        }
-        return;
-    }
-
-    if (type == "talking") {
-        // Optional extension: {"t":"talking","names":[...]} / {"uids":[...]}
-        m_talkingNames.clear();
-        const json::Value* names = message.find("names");
-        if (names && names->isArray()) {
-            for (size_t i = 0; i < names->items.size(); ++i) {
-                const std::string name = convertNickname(names->items[i].asString());
-                if (!name.empty()) m_talkingNames.insert(name);
-            }
-        }
-        const json::Value* uids = message.find("uids");
-        if (uids && uids->isArray()) {
-            for (size_t i = 0; i < uids->items.size(); ++i) {
-                const std::string uid = uids->items[i].asString();
-                if (uid.empty()) continue;
-                for (std::unordered_map<std::string, std::string>::const_iterator it =
-                         m_nameToUid.begin();
-                     it != m_nameToUid.end(); ++it) {
-                    if (it->second == uid) m_talkingNames.insert(it->first);
-                }
-            }
-        }
-        return;
-    }
-
-    if (type == "tx") {
-        // Optional extension, see README.md: what remote players transmit.
-        const json::Value* list = message.find("u");
-        if (!list || !list->isArray()) return;
-        m_everReceivedTx = true;
-        m_remoteTx.clear();
-        const Clock::time_point now = Clock::now();
-        for (size_t i = 0; i < list->items.size(); ++i) {
-            const json::Value& entry = list->items[i];
-            if (!entry.isObject()) continue;
-
-            std::string name = convertNickname(entry.getString("name"));
-            if (name.empty()) {
-                const std::string uid = entry.getString("uid");
-                for (std::unordered_map<std::string, std::string>::const_iterator it =
-                         m_nameToUid.begin();
-                     it != m_nameToUid.end(); ++it) {
-                    if (it->second == uid) {
-                        name = it->first;
-                        break;
-                    }
-                }
-            }
-            if (name.empty()) continue;
-
-            RemoteTx tx;
-            tx.nickname = name;
-            tx.frequency = entry.getString("freq");
-            tx.range = static_cast<float>(entry.getNumber("range", 0.0));
-            tx.subtype = entry.getString("sub", "digital");
-            tx.received = now;
-            if (tx.frequency.empty()) continue;
-            m_remoteTx[name] = tx;
-            m_talkingNames.insert(name);
-        }
-        return;
-    }
+    m_statusTransmitting = transmitting;
 }
 
-std::string State::takePendingLocalMessage() {
+void State::setRemoteTx(const std::string& uid, bool active, const std::string& freq, float range,
+                        const std::string& subtype) {
+    if (uid.empty()) return;
+
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (m_pendingLocalMessage.empty()) return std::string();
-    std::string out;
-    out.swap(m_pendingLocalMessage);
+    std::string name;
+    for (std::unordered_map<std::string, std::string>::const_iterator it = m_nameToUid.begin();
+         it != m_nameToUid.end(); ++it) {
+        if (it->second == uid) {
+            name = it->first;
+            break;
+        }
+    }
+    if (name.empty()) return;  // not yet resolved via the UID command -- nothing to attach this to
+
+    m_everReceivedTx = true;
+    if (!active || freq.empty()) {
+        m_remoteTx.erase(name);
+        return;
+    }
+
+    RemoteTx tx;
+    tx.nickname = name;
+    tx.frequency = freq;
+    tx.range = range;
+    tx.subtype = subtype;
+    tx.received = Clock::now();
+    m_remoteTx[name] = tx;
+    m_talkingNames.insert(name);
+}
+
+void State::setVoiceConnected(bool connected) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_voiceConnected = connected;
+}
+
+std::optional<std::optional<bool>> State::takeTransmitOverride() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::optional<std::optional<bool>> out;
+    out.swap(m_pendingTransmitOverride);
     return out;
 }
 
-void State::queueLocalMessageLocked(const char* value) {
-    m_pendingLocalMessage = std::string("{\"t\":\"local\",\"transmitOverride\":") + value + "}";
+void State::queueLocalMessageLocked(std::optional<bool> value) {
+    m_pendingTransmitOverride = value;
 }
 
 // ---------------------------------------------------------------------------
@@ -852,7 +773,7 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
     if (haveBest) out.push_back(best);
 }
 
-std::string State::buildUnitsMessage() {
+std::vector<AudibleUnit> State::computeAudibleUnits() {
     std::lock_guard<std::mutex> lock(m_mutex);
 
     const Clock::time_point now = Clock::now();
@@ -873,7 +794,6 @@ std::string State::buildUnitsMessage() {
     }
     m_lrIncoming = m_lrIncomingPending;
 
-    std::string out = "{\"t\":\"units\",\"u\":[";
     for (size_t i = 0; i < units.size(); ++i) {
         AudibleUnit& unit = units[i];
         unit.gain *= m_globalVolume;
@@ -884,67 +804,22 @@ std::string State::buildUnitsMessage() {
             m_receivingAnyRadio = true;
         }
 
-        if (i != 0) out += ',';
-        out += "{\"uid\":";
-        out += json::quote(uidForLocked(unit.nickname));
-        out += ",\"gain\":";
-        out += json::number(unit.gain, 4);
-        out += ",\"az\":";
-        out += json::number(unit.az, 4);
-        out += ",\"muted\":";
-        out += unit.muted ? "true" : "false";
-        out += ",\"fx\":\"";
-        out += unit.fx;
-        out += "\",\"err\":";
-        out += json::number(unit.err, 4);
-        out += '}';
+        unit.uid = uidForLocked(unit.nickname);
     }
 
-    // Empty until the "UID" command (fnc_sendPlayerInfo.sqf, once per unit including the local
-    // player) has run for us -- deliberately NOT falling back to the nickname the way
-    // uidForLocked does for other units, so the voice client can tell "not known yet" apart from
-    // a real UID and keep waiting instead of connecting to the relay under the wrong identity.
-    std::string myUid;
-    if (!m_myNickname.empty()) {
-        std::unordered_map<std::string, std::string>::const_iterator it =
-            m_nameToUid.find(m_myNickname);
-        if (it != m_nameToUid.end()) myUid = it->second;
+    return units;
+}
+
+State::LocalTxState State::localTxState() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    LocalTxState tx;
+    tx.active = m_tangentPressed;
+    if (tx.active) {
+        tx.freq = m_txFrequency;
+        tx.range = m_txRange;
+        tx.subtype = m_txSubtype;
     }
-
-    out += "],\"myUid\":";
-    out += json::quote(myUid);
-
-    // So the voice client can log what addon version it's talking to on connect -- to catch a
-    // client/server/addon version mismatch quickly instead of it looking like a mystery bug (this
-    // whole session had exactly that problem more than once). Empty until the extension's first
-    // NEEDCFG round-trip completes (fnc_sendPluginConfig.sqf sends this via SETCFG).
-    out += ",\"addonVersion\":";
-    {
-        std::unordered_map<std::string, std::string>::const_iterator it =
-            m_config.find("addon_version");
-        out += json::quote(it != m_config.end() ? it->second : std::string());
-    }
-
-    // Tells the voice client what WE are currently transmitting so it can relay it to every other
-    // player's client, which forwards it to their extension as a "tx" message -- see
-    // docs/protocol-ipc-bridge.md. Without this, no extension anywhere ever learns who's
-    // transmitting on which frequency (the TS3 client-to-client channel this used to travel over
-    // doesn't exist here), and radio never has anyone to route audio for at all.
-    out += ",\"localTx\":";
-    if (m_tangentPressed) {
-        out += "{\"active\":true,\"freq\":";
-        out += json::quote(m_txFrequency);
-        out += ",\"range\":";
-        out += json::number(m_txRange, 0);
-        out += ",\"sub\":";
-        out += json::quote(m_txSubtype);
-        out += '}';
-    } else {
-        out += "null";
-    }
-
-    out += '}';
-    return out;
+    return tx;
 }
 
 }  // namespace tfrs

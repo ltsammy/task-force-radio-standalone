@@ -50,10 +50,6 @@ set(TFRS_SOURCES
     src/CommandProcessor.cpp
     src/CommandProcessor.h
     src/Extension.cpp
-    src/Json.cpp
-    src/Json.h
-    src/PipeClient.cpp
-    src/PipeClient.h
     src/State.cpp
     src/State.h
     src/Util.cpp

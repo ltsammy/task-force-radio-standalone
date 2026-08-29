@@ -2,16 +2,19 @@
 
 #include <vector>
 
-#include "PipeClient.h"
 #include "State.h"
 #include "Util.h"
+#include "Voice/VoiceSession.h"
 
 namespace tfrs {
 
 namespace {
 
 // Kept verbatim on purpose: fnc_sendPlayerInfo.sqf matches on this exact text
-// (GVAR(noTSNotConnectedHint)), see docs/protocol-extension-legacy.md.
+// (GVAR(noTSNotConnectedHint)), see docs/protocol-extension-legacy.md. Wording is legacy --
+// "TeamSpeak" hasn't been literally true since the original TS3-plugin architecture, and now
+// means "not connected to the voice server" (src/Voice/VoiceNetworkClient), not an intermediate
+// bridge -- but changing it would break that exact-text match on the SQF side.
 const char* const kNotConnected = "Not connected to TeamSpeak";
 
 std::string firstToken(const std::string& payload) {
@@ -32,7 +35,7 @@ std::string CommandProcessor::process(const std::string& input) {
     const std::string payload = async ? input.substr(0, input.size() - 1) : input;
     const std::string command = firstToken(payload);
 
-    if (!m_pipe.isConnected()) return kNotConnected;
+    if (!m_voice.isConnected()) return kNotConnected;
 
     if (!async) return processSync(command, payload);
 
