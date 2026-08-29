@@ -50,6 +50,7 @@ public:
     // 0..2, matches PlaybackEngine.MasterVolume's clamp range.
     void setMasterVolume(float volume);
     void setMuted(bool muted);
+    bool isMuted() const { return m_muted.load(); }
 
     // Mirrors ServerOptions.DebugForceAudible: when true, newly added sources start fully
     // audible/centered/undistorted. Set by VoiceSession once ConnectAccept reports it.

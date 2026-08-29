@@ -34,6 +34,7 @@ public:
     void setMode(TransmitMode mode) { m_mode.store(mode); }
     void setPttHeld(bool held) { m_pttHeld.store(held); }
     void setMicMuted(bool muted) { m_micMuted.store(muted); }
+    bool isMicMuted() const { return m_micMuted.load(); }
     void setVadThreshold(float threshold) { m_vadThreshold.store(threshold); }
     void setMicVolume(float volume) { m_micVolume.store(volume); }
     // Mirrors AddonTransmitOverride: no override -> normal gating; override=false blocks ALL

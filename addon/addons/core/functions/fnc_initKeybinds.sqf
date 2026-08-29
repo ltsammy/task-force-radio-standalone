@@ -202,6 +202,28 @@ private _fnc_localizeLRChannel = {
 
 ["TFAR", "ToggleHeadset", [localize LSTRING(key_RaiseLowerHeadset), localize LSTRING(key_RaiseLowerHeadset)], {}, {!(missionNamespace getVariable [QGVAR(isHeadsetLowered), false]) call TFAR_fnc_setHeadsetLowered;}, [0, [false, false, false]], false] call cba_fnc_addKeybind;
 
+// Voice port phase 5: mic PTT (direct speech, independent of which radio -- if any -- is also
+// being held via SWTransmit/LRTransmit above) and mic/speaker mute, replacing the old standalone
+// voice client's own GetAsyncKeyState polling with Arma's own input handling (Configure Controls
+// -> Configure Addons -> TFAR). Unbound by default, same as ToggleHeadset.
+["TFAR", "MicPTT", [localize LSTRING(key_MicPTT), localize LSTRING(key_MicPTT)], {
+    "task_force_radio_pipe" callExtension "MICPTT\tPRESSED~";
+    true
+}, {
+    "task_force_radio_pipe" callExtension "MICPTT\tRELEASED~";
+    true
+}, [0, [false, false, false]], false] call cba_fnc_addKeybind;
+
+["TFAR", "MicMute", [localize LSTRING(key_MicMute), localize LSTRING(key_MicMute)], {}, {
+    "task_force_radio_pipe" callExtension "MICMUTE~";
+    true
+}, [0, [false, false, false]], false] call cba_fnc_addKeybind;
+
+["TFAR", "SpeakerMute", [localize LSTRING(key_SpeakerMute), localize LSTRING(key_SpeakerMute)], {}, {
+    "task_force_radio_pipe" callExtension "SPEAKERMUTE~";
+    true
+}, [0, [false, false, false]], false] call cba_fnc_addKeybind;
+
 ["TFAR", "TSDebugLog", ["TS Debug Log", "Makes TS collect debug info into one folder"], {}, {
     "task_force_radio_pipe" callExtension "collectDebugInfo~";
     systemChat "I logged stuff! Look in TS for path";

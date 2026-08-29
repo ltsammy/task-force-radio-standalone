@@ -2418,6 +2418,21 @@ Normal radyo su altı radyosuyla iletişim kuramaz (herhangi bir ses gelmez). Da
                 <Italian>Alza/abbassa l'auricolare</Italian>
                 <Czech>Nasadit/Sundat headset</Czech>
             </Key>
+            <Key ID="STR_TFAR_CORE_key_MicPTT">
+                <Original>Push To Talk (Direct Speech)</Original>
+                <English>Push To Talk (Direct Speech)</English>
+                <German>Sprechtaste (Direkte Sprache)</German>
+            </Key>
+            <Key ID="STR_TFAR_CORE_key_MicMute">
+                <Original>Toggle Microphone Mute</Original>
+                <English>Toggle Microphone Mute</English>
+                <German>Mikrofon stummschalten</German>
+            </Key>
+            <Key ID="STR_TFAR_CORE_key_SpeakerMute">
+                <Original>Toggle Speaker Mute</Original>
+                <English>Toggle Speaker Mute</English>
+                <German>Lautsprecher stummschalten</German>
+            </Key>
         </Container>
         <Key ID="STR_TFAR_CORE_different_version">
             <Original>Different versions of Task Force Radio are used. Server version: %1, Your version: %2</Original>

@@ -61,6 +61,15 @@ public:
     bool isConnected() const { return m_network.isConnected(); }
     bool isTransmitting() const { return m_transmit.isTransmitting(); }
 
+    // -- PTT / mic-mute / speaker-mute, driven by CBA keybinds (see fnc_initKeybinds.sqf's
+    // MicPTT/MicMute/SpeakerMute actions) via CommandProcessor's MICPTT/MICMUTE/SPEAKERMUTE
+    // commands. Toggle, not set, for the two mutes -- matches the existing ToggleHeadset keybind
+    // idiom already used in this addon; safe here since callExtension is a direct synchronous
+    // call, nothing can be dropped in transit the way a lost UDP packet could.
+    void setPttHeld(bool held) { m_transmit.setPttHeld(held); }
+    void toggleMicMute() { m_transmit.setMicMuted(!m_transmit.isMicMuted()); }
+    void toggleSpeakerMute() { m_playback.setMuted(!m_playback.isMuted()); }
+
     // -- per-tick inputs from Extension.cpp, driven by State ----------------
 
     // Applies State::computeAudibleUnits()'s output to matching playback sources (uid -> sessionId

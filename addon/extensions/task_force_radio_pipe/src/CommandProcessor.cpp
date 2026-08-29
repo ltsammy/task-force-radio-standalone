@@ -41,11 +41,11 @@ std::string CommandProcessor::process(const std::string& input) {
 
     processAsync(command, payload);
 
-    if (!command.empty() && command[0] == 'D') {  // DFRAME
+    if (command == "DFRAME") {
         if (m_state.needsConfig()) return "NEEDCFG";
         return "OK";
     }
-    if (!command.empty() && command[0] == 'M') {  // MISSIONEND -> empty string
+    if (command == "MISSIONEND") {  // -> empty string
         return std::string();
     }
     return "OK";
@@ -150,6 +150,25 @@ void CommandProcessor::processAsync(const std::string& command, const std::strin
 
     if (command == "MISSIONEND") {
         m_state.handleMissionEnd();
+        return;
+    }
+
+    // Additive, not part of the legacy protocol -- driven by fnc_initKeybinds.sqf's MicPTT/
+    // MicMute/SpeakerMute cba_fnc_addKeybind actions (voice port Phase 5), replacing the old
+    // standalone client's own GetAsyncKeyState polling with Arma's own input handling.
+    if (command == "MICPTT") {
+        const std::vector<std::string> tokens = splitLimit(payload, '\t', 2);
+        if (tokens.size() >= 2) m_voice.setPttHeld(tokens[1] == "PRESSED");
+        return;
+    }
+
+    if (command == "MICMUTE") {
+        m_voice.toggleMicMute();
+        return;
+    }
+
+    if (command == "SPEAKERMUTE") {
+        m_voice.toggleSpeakerMute();
         return;
     }
 
