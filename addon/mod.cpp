@@ -3,17 +3,17 @@ actionName = "Website";
 action = "http://radio.task-force.ru/en";
 description = "Task Force Arrowhead Radio";
 
-picture = "\z\tfar\addons\core\task_force_arrowhead_logo.paa";
-contentBrowserPicture = "\z\tfar\addons\core\task_force_arrowhead_logo.paa";
-logo = "\z\tfar\addons\core\task_force_arrowhead_logo.paa";
+picture = "\z\tfar\addons\core\tfar_standalone_logo.paa";
+contentBrowserPicture = "\z\tfar\addons\core\tfar_standalone_logo.paa";
+logo = "\z\tfar\addons\core\tfar_standalone_logo.paa";
 logoOver = "\z\tfar\addons\core\manw_winner_addon_1st_emblem.paa";
-logoSmall = "\z\tfar\addons\core\task_force_arrowhead_logo.paa";
+logoSmall = "\z\tfar\addons\core\tfar_standalone_logo.paa";
 
 tooltip = "Task Force Arrowhead Radio";
 tooltipOwned = "Task Force Arrowhead Radio";
 overview = "War is not only about moving, waiting and engaging targets. It is also about communication. Task Force Arrowhead Radio provides a way to dramatically increase gameplay realism and atmosphere by seamless integration with TeamSpeak.";
 author = "TFAR Team";
-overviewPicture = "\z\tfar\addons\core\task_force_arrowhead_logo.paa";
+overviewPicture = "\z\tfar\addons\core\tfar_standalone_logo.paa";
 overviewText = "Task Force Arrowhead Radio";
 overviewFootnote = "<br /><br /><t color='#999999'>This content is under APL-SA License.<t />";
 hidePicture = 0;

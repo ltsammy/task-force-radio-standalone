@@ -31,6 +31,7 @@ include = [
     "CONTRIBUTORS.md",
     "manw_winner_addon_1st_emblem.paa",
     "task_force_arrowhead_logo.paa",
+    "tfar_standalone_logo.paa",
     "task_force_radio_pipe.dll",
     "task_force_radio_pipe_x64.dll",
 ]
