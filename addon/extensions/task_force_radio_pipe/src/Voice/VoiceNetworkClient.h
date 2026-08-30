@@ -125,6 +125,10 @@ private:
     unsigned m_resolveFailCount = 0;
     // Same throttling, for the "not configured at all yet" wait state in threadMain().
     unsigned m_notConfiguredLogCount = 0;
+    // Same throttling, for tryHandshake() exhausting every retry with zero reply from the server
+    // (DNS resolves and the socket opens fine, but nothing ever comes back -- the signature of an
+    // outbound/inbound UDP block, e.g. a firewall or AV silently dropping the traffic).
+    unsigned m_handshakeSilentFailCount = 0;
 };
 
 }  // namespace voice

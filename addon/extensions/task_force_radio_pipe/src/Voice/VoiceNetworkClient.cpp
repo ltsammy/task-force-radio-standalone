@@ -219,6 +219,7 @@ bool VoiceNetworkClient::tryHandshake(const ServerConfig& config, const Identity
                 } catch (...) {
                     continue;  // malformed accept -- keep waiting within this attempt
                 }
+                m_handshakeSilentFailCount = 0;
                 return true;
             }
             if (type == PacketType::ConnectReject) {
@@ -230,6 +231,16 @@ bool VoiceNetworkClient::tryHandshake(const ServerConfig& config, const Identity
             // Anything else (e.g. a stray late packet from a previous session) -- ignore, keep
             // waiting for a real reply.
         }
+    }
+    // Every attempt sent, none got any reply at all (not even a reject) -- distinct from DNS/socket
+    // failure (already logged in resolveAndOpenSocket) and from an explicit reject (already logged
+    // above). Throttled the same way: threadMain() retries this every ~kReconnectInterval forever,
+    // and it fails identically each time, so only log every 10th occurrence.
+    if ((++m_handshakeSilentFailCount % 10) == 1) {
+        logLine("handshake: sent " + std::to_string(kHandshakeRetries) +
+               " ConnectRequest(s) to '" + config.host + ":" + std::to_string(config.port) +
+               "', got zero reply -- check that outbound/inbound UDP to that port isn't being "
+               "blocked by a firewall or antivirus on this PC");
     }
     return false;
 }
