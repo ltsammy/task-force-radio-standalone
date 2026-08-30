@@ -628,6 +628,7 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
                     unit.nickname = other.nickname;
                     unit.fx = fx;
                     unit.az = 0.0f;  // radio is "in your ear", the original never pans it
+                    unit.stereoMode = setting->stereoMode;  // per-radio left/right ear selection
                     unit.gain = (std::strcmp(fx, "phone") == 0) ? volumeLevel * 10.0f
                                                                 : volumeLevel * 0.35f;
 

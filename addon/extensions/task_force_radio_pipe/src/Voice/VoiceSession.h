@@ -31,6 +31,7 @@ struct AudibilityUpdate {
     bool muted = false;
     SourceEffect effect = SourceEffect::Direct;
     float errorLevel = 0.0f;
+    int stereoMode = 0;  // 0 = stereo, 1 = leftOnly, 2 = rightOnly
 };
 
 // Mirrors State::RemoteTx / the old bridge's "tx" message, resolved to a uid instead of a

@@ -95,9 +95,22 @@ bool RemoteVoiceSource::tryProduceNextFrame() {
     ensureEffectChain(state.effect);
     m_effectChain->process(m_monoFrame.data(), m_monoFrame.size(), state.errorLevel);
 
-    const auto [left, right] = Panning::compute(state.azimuthRadians);
-    const float leftGain = left * state.gain;
-    const float rightGain = right * state.gain;
+    // stereoMode (per-radio "which ear" setting, FREQ's 3rd field) is a hard channel cut, not a
+    // spatial pan -- overrides azimuth entirely when set. Matches the original TFAR TS plugin's
+    // RadioEffect.hpp processRadioEffect: the silenced channel carries none of the signal, and the
+    // remaining one gets a 1.5x gain boost to compensate for losing the other ear's share.
+    float leftGain, rightGain;
+    if (state.stereoMode == 1) {  // leftOnly
+        leftGain = state.gain * 1.5f;
+        rightGain = 0.0f;
+    } else if (state.stereoMode == 2) {  // rightOnly
+        leftGain = 0.0f;
+        rightGain = state.gain * 1.5f;
+    } else {
+        const auto [left, right] = Panning::compute(state.azimuthRadians);
+        leftGain = left * state.gain;
+        rightGain = right * state.gain;
+    }
     for (size_t i = 0; i < m_monoFrame.size(); ++i) {
         m_stereoFrame[i * 2] = std::clamp(m_monoFrame[i] * leftGain, -1.0f, 1.0f);
         m_stereoFrame[i * 2 + 1] = std::clamp(m_monoFrame[i] * rightGain, -1.0f, 1.0f);

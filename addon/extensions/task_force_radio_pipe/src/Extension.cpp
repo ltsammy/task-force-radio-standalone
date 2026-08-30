@@ -138,7 +138,8 @@ void senderMain() {
         updates.reserve(units.size());
         for (const tfrs::AudibleUnit& unit : units) {
             updates.push_back(tfrs::voice::AudibilityUpdate{
-                unit.uid, unit.gain, unit.az, unit.muted, parseSourceEffect(unit.fx), unit.err});
+                unit.uid, unit.gain, unit.az, unit.muted, parseSourceEffect(unit.fx), unit.err,
+                unit.stereoMode});
         }
         g_voice->applyAudibility(updates);
 

@@ -151,7 +151,7 @@ void VoiceSession::applyAudibility(const std::vector<AudibilityUpdate>& units) {
             seenSessionIds.push_back(it->second);
             m_playback.setSourceState(
                 it->second, RemoteSourceState{unit.gain, unit.azimuth, unit.muted, unit.effect,
-                                              unit.errorLevel});
+                                              unit.errorLevel, unit.stereoMode});
         }
     }
 

@@ -102,6 +102,7 @@ struct AudibleUnit {
     bool muted = false;
     const char* fx = "direct";
     float err = 0.0f;
+    int stereoMode = 0;  // 0 = stereo, 1 = leftOnly, 2 = rightOnly (from FreqSetting::stereoMode)
 };
 
 class State {

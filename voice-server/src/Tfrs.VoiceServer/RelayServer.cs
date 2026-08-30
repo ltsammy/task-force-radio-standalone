@@ -236,12 +236,12 @@ internal sealed class RelayServer : IAsyncDisposable
         writer.WriteUInt16(sequence);
         writer.WriteByte(flags);
         writer.WriteBytes(opus);
-        var packet = writer.Written.ToArray(); // detach from stack before the async fan-out below
+        var packet = writer.Written; // stackalloc is fine here -- Send() below is synchronous
 
         foreach (var target in _sessionsById.Values)
         {
             if (target.SessionId == sender.SessionId) continue;
-            FireAndForgetSend(packet, target.EndPoint);
+            Send(packet, target.EndPoint);
         }
     }
 
@@ -276,12 +276,12 @@ internal sealed class RelayServer : IAsyncDisposable
         writer.WriteString8(freq);
         writer.WriteUInt16(range);
         writer.WriteString8(sub);
-        var packet = writer.Written.ToArray();
+        var packet = writer.Written;
 
         foreach (var target in _sessionsById.Values)
         {
             if (target.SessionId == sender.SessionId) continue;
-            FireAndForgetSend(packet, target.EndPoint);
+            Send(packet, target.EndPoint);
         }
     }
 
@@ -397,23 +397,6 @@ internal sealed class RelayServer : IAsyncDisposable
         catch (SocketException)
         {
             // best-effort — a single failed control-packet send should never take the server down
-        }
-    }
-
-    private void FireAndForgetSend(byte[] data, IPEndPoint target)
-    {
-        _ = FireAndForgetSendAsync(data, target);
-    }
-
-    private async Task FireAndForgetSendAsync(byte[] data, IPEndPoint target)
-    {
-        try
-        {
-            await _socket.SendToAsync(data, SocketFlags.None, target);
-        }
-        catch (SocketException)
-        {
-            // best-effort UDP relay — ignore unreachable/reset errors from a single peer
         }
     }
 

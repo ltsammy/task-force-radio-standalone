@@ -26,8 +26,11 @@ struct RemoteSourceState {
     bool muted = false;
     SourceEffect effect = SourceEffect::Direct;
     float errorLevel = 0.0f;
+    int stereoMode = 0;  // 0 = stereo, 1 = leftOnly, 2 = rightOnly -- hard ear cut, bypasses azimuth panning
 
-    static RemoteSourceState silent() { return RemoteSourceState{0.0f, 0.0f, true, SourceEffect::Direct, 0.0f}; }
+    static RemoteSourceState silent() {
+        return RemoteSourceState{0.0f, 0.0f, true, SourceEffect::Direct, 0.0f, 0};
+    }
 };
 
 class RemoteVoiceSource {
