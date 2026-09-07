@@ -17,7 +17,11 @@ The **only** decision is made by the last character of the input string:
   - Command starts with `M` (MISSIONEND) → response is an **empty string** `""`
 - No `~` → **sync**, the extension blocks until a response or a 1000ms timeout (then `""`).
 - Extension not connected/ready → `"Not connected to TeamSpeak"` (string **deliberately left
-  unchanged** — SQF checks for this exact text, see below).
+  unchanged** — SQF checks for this exact text, see below). Only reported once the voice
+  connection has been down for a continuous 10s (`kNotConnectedGrace` in `CommandProcessor.cpp`):
+  connecting is never instant (SETCFG has to deliver the address first, then DNS, then a handshake
+  that retries 5×1.5s), and reporting from the first `POS` flashed the popup on every normal
+  mission start and every brief reconnect.
 - Unknown command → sync: `"UNKNOWN COMMAND"`, async: silently ignored.
 
 Delimiters: `\t` (main fields), `0x0A` (`TF_new_line`, sub-delimiter level 2), `0x0B`
@@ -150,8 +154,12 @@ formula).
 UID \t nickname \t steamUid ~
 ```
 
-Sent once per unit (from the same "first time we've seen this unit" check `fnc_sendPlayerInfo.sqf`
-already does for its `Killed` event handler), carrying that unit's `getPlayerUID`. This is how the
+Sent once per unit, carrying that unit's `getPlayerUID`, and **retried on every update until Arma
+actually returns a non-empty UID** (`TFAR_uidSent`). It used to piggyback on the "first time we've
+seen this unit" check that `fnc_sendPlayerInfo.sqf` does for its `Killed` event handler, i.e. one
+attempt per unit ever — so whenever `getPlayerUID` happened to return `""` at that exact moment
+(a JIP player, a slot still AI-controlled, a remote-controlled/curator unit) no UID was ever sent
+for that name again, and that player could not be routed to a voice session at all. This is how the
 extension resolves a nickname (everything above is nickname-keyed, for legacy-compatibility) to the
 UID the native voice path (`src/Voice/`) actually routes playback by — see `uidForLocked` /
 `m_nameToUid` in `State.cpp`, and `VoiceSession`'s uid↔sessionId roster (populated from the voice
@@ -164,4 +172,12 @@ server's own `ClientJoined`/`ClientLeft` packets, `protocol-network.md`).
 3. `IS_SPEAKING_BULK` has a trailing tab after the last pair.
 4. `MISSIONEND` replies with an empty string, not `"OK"`.
 5. Keep `"Not connected to TeamSpeak"` as the error text in case SQF code (now or in community
-   addons) matches against it — when in doubt, use the exact original text.
+   addons) matches against it — when in doubt, use the exact original text. What the *player*
+   sees is not this string: `fnc_sendPlayerInfo.sqf` swaps it for
+   `STR_TFAR_CORE_WM_NotConnectedToVoiceServer`, because the legacy wording had players installing
+   and starting TeamSpeak 3 to try to make it go away.
+6. A missing/late `UID` is never fatal any more: `State::myUid()` falls back to the nickname (the
+   voice server rejects an empty uid outright), `uidForLocked()` mirrors that fallback on the
+   receiving side, and `VoiceSession::applyAudibility` matches a source by nickname when the uid
+   does not resolve. A uid change (nickname fallback → real `getPlayerUID`) forces a voice
+   reconnect, since the relay only ever learns a uid from a `ConnectRequest`.

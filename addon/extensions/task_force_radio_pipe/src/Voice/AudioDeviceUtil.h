@@ -3,6 +3,8 @@
 // voice-client/src/Tfrs.VoiceClient/Audio/AudioDevices.cs's Resolve()-when-no-device-chosen path.
 #pragma once
 
+#include <string>
+
 struct IMMDevice;
 
 namespace tfrs {
@@ -20,6 +22,17 @@ public:
     // communication device" setting, which looks indistinguishable from "not picking up my mic at
     // all" with no error anywhere -- see AudioDevices.cs's doc comment for the same reasoning.
     static IMMDevice* getDefaultDevice(AudioFlow flow);
+
+    // The endpoint id string of whatever getDefaultDevice(flow) would return right now, or an
+    // empty string if there is no default device. Cheap enough to poll every second or so, which
+    // is how the capture/playback threads notice the user switching their default headset while
+    // Arma is running: WASAPI does NOT tear down an already-initialized stream when the *default*
+    // endpoint changes (only when the device itself disappears), so without this the audio keeps
+    // going to/from the device that was default at startup, with no error anywhere.
+    static std::wstring getDefaultDeviceId(AudioFlow flow);
+
+    // Same, for an already-resolved device.
+    static std::wstring getDeviceId(IMMDevice* device);
 
     // True if the endpoint is muted, or its volume is at/near zero, at the OS mixer level --
     // distinct from the mic *privacy* permission, and from this app's own mute state. Diagnostic

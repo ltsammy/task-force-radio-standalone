@@ -47,16 +47,16 @@ void TransmitController::setAddonOverride(bool hasOverride, bool overrideValue) 
     m_addonOverrideValue.store(overrideValue);
 }
 
-bool TransmitController::evaluateVoiceActivation(float gainedRms) {
+bool TransmitController::evaluateVoiceActivation(float level) {
     const auto now = std::chrono::steady_clock::now();
-    if (gainedRms >= m_vadThreshold.load()) {
+    if (level >= m_vadThreshold.load()) {
         m_vadHangoverUntil = now + kVadHangover;
         return true;
     }
     return now < m_vadHangoverUntil;
 }
 
-bool TransmitController::determineShouldTransmit(float gainedRms) {
+bool TransmitController::determineShouldTransmit(float level) {
     if (m_hasAddonOverride.load()) {
         // false blocks everything, even AlwaysOn; true forces it regardless of mode.
         return m_addonOverrideValue.load();
@@ -68,7 +68,7 @@ bool TransmitController::determineShouldTransmit(float gainedRms) {
         case TransmitMode::PushToTalk:
             return m_pttHeld.load();
         case TransmitMode::VoiceActivation:
-            return evaluateVoiceActivation(gainedRms);
+            return evaluateVoiceActivation(level);
     }
     return false;
 }
@@ -88,15 +88,33 @@ void TransmitController::onFrameCaptured(const float* rawMono960) {
     }
     const float rawRms = static_cast<float>(std::sqrt(rawSumSquares / OpusFormat::kFrameSamples));
 
-    // AGC: applied before VAD/threshold logic. Skipped entirely below this floor so it never
-    // chases pure silence up to the target level.
+    // The level the VAD threshold is compared against: the mic signal at the level the USER set,
+    // with AGC deliberately left out of it.
+    //
+    // This used to be measured AFTER AGC, which quietly defeated voice activation entirely: AGC
+    // normalizes anything above ~0.0067 raw straight to its 0.08 target, so every input louder
+    // than that landed 8x over the 0.01 default threshold, and even a whisper-quiet room got
+    // multiplied by up to 12x. The effective raw gate worked out to ~0.0008 (-61 dBFS), i.e.
+    // "any signal at all" -- so a VAD user was really running an always-open mic, transmitting
+    // AGC-amplified room noise to everyone in direct-speech range the whole time.
+    const float micVolume = m_micVolume.load();
+    const float vadLevel = rawRms * micVolume;
+    const bool levelIsVoiceLike = vadLevel >= m_vadThreshold.load();
+
+    // AGC. Gain may always fall, but only rise while the signal actually looks like voice --
+    // otherwise it winds all the way up to kAgcMaxGain during silence, and the first ~100ms of
+    // every talkspurt (before the fast attack pulls it back down) blasts through at up to 12x,
+    // which is heard as a click/crackle at the start of a transmission.
     if (rawRms >= 0.0001f) {
         const float desired = std::clamp(kAgcTargetRms / rawRms, kAgcMinGain, kAgcMaxGain);
-        const float rate = (desired < m_autoGain) ? kAgcAttackRate : kAgcReleaseRate;
-        m_autoGain += (desired - m_autoGain) * rate;
+        if (desired < m_autoGain) {
+            m_autoGain += (desired - m_autoGain) * kAgcAttackRate;
+        } else if (levelIsVoiceLike) {
+            m_autoGain += (desired - m_autoGain) * kAgcReleaseRate;
+        }
     }
 
-    const float totalGain = m_micVolume.load() * m_autoGain;
+    const float totalGain = micVolume * m_autoGain;
     double gainedSumSquares = 0.0;
     for (int i = 0; i < OpusFormat::kFrameSamples; ++i) {
         const float sample = std::clamp(mono960[i] * totalGain, -1.0f, 1.0f);
@@ -117,7 +135,7 @@ void TransmitController::onFrameCaptured(const float* rawMono960) {
         m_silentFrameCount = 0;
     }
 
-    const bool shouldTransmit = determineShouldTransmit(gainedRms);
+    const bool shouldTransmit = determineShouldTransmit(vadLevel);
     m_isTransmitting.store(shouldTransmit);
 
     // Diagnostic-only, edge-triggered on the DISCRETE state only (this runs ~50x/second;
@@ -137,8 +155,10 @@ void TransmitController::onFrameCaptured(const float* rawMono960) {
                                  " -> shouldTransmit=" + (shouldTransmit ? "1" : "0");
         if (triggerKey != m_lastLoggedGateState) {
             logLine("transmit-gate: " + triggerKey +
-                   " (gainedRms=" + std::to_string(gainedRms) +
-                   " vadThreshold=" + std::to_string(m_vadThreshold.load()) + ")");
+                   " (vadLevel=" + std::to_string(vadLevel) +
+                   " vadThreshold=" + std::to_string(m_vadThreshold.load()) +
+                   " gainedRms=" + std::to_string(gainedRms) +
+                   " agc=" + std::to_string(m_autoGain) + ")");
             m_lastLoggedGateState = triggerKey;
         }
     }

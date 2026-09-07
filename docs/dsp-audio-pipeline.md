@@ -186,6 +186,23 @@ without any Arma/SQF dependency:
   Arma-independent signal processing (foldback/delay/ringmod, RBJ/Butterworth filters, panning,
   mixing, compressor) — exactly what's documented here. No geometry/physics code here at all.
 
+Two ordering rules inside that split are load-bearing, and both were once broken:
+
+- **Speaker radios are not gated on the listener's own tuning.** In `addAudibleForClientLocked`
+  the "external speakers on the sender's frequency" pass sits next to the local-radio pass, not
+  inside it: it only needs the sender's range to reach us, exactly like
+  `old/ts/src/clientData.cpp`'s `getAllRadios()`. Nesting it inside the local-radio check makes
+  speaker mode dead in practice, because `fnc_sendFrequencyInfo.sqf` deliberately drops a radio
+  that is switched to speakers from our own frequency list ("If speakers are enabled we will not
+  have it on our headset at the same time").
+- **Voice activation is measured before AGC, not after.** `TransmitController::onFrameCaptured`
+  compares the VAD threshold against `rawRms * micVolume`. Comparing against the post-AGC level
+  defeats voice activation entirely — AGC normalizes anything above ~0.0067 raw to its 0.08
+  target, so the effective raw gate lands around 0.0008 (-61 dBFS) and the user is really
+  running an always-open mic. AGC gain may fall at any time but only rises while the level already
+  looks like voice, so it cannot wind up to its 12× ceiling during silence and then blast the
+  first ~100 ms of a talkspurt.
+
 This split is deliberately identical to the original TS3-plugin-era architecture (SQF/extension
 knows the game world, the audio side only knows audio) and to the intermediate two-process
 (extension ↔ standalone voice client) architecture that preceded this one — only the process

@@ -137,6 +137,11 @@
                 <Italian>SEMBRA CHE L'ADDON RADIO DELLA TASK FORCE NON SIA ABILITATO O UNA VERSIONE INFERIORE ALLA 1.0 </Italian>
                 <Czech>VYPADÁ, ŽE TASK FORCE RADIO NENÍ POVOLEN NEBO JE POUŽITA VERZE MENŠÍ NEŽ 1.0</Czech>
             </Key>
+            <Key ID="STR_TFAR_CORE_WM_NotConnectedToVoiceServer">
+                <Original>Not connected to the TFAR voice server. Check "Voice Server Address" and "Voice Server Port" under Addon Options -> TFAR. (TeamSpeak is not used and does not need to be running.)</Original>
+                <English>Not connected to the TFAR voice server. Check "Voice Server Address" and "Voice Server Port" under Addon Options -> TFAR. (TeamSpeak is not used and does not need to be running.)</English>
+                <German>Keine Verbindung zum TFAR-Voice-Server. Prüfe "Voice-Server-Adresse" und "Voice-Server-Port" unter Addon-Optionen -> TFAR. (TeamSpeak wird nicht verwendet und muss nicht laufen.)</German>
+            </Key>
         </Container>
         <Container name="settings">
             <Key ID="STR_TFAR_SETTINGS_clientside">

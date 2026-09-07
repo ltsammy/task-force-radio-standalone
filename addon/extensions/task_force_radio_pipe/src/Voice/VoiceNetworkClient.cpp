@@ -91,7 +91,12 @@ std::string VoiceNetworkClient::serverVersion() const {
 
 bool VoiceNetworkClient::configChangedLocked() const {
     return m_config.host != m_activeConfig.host || m_config.port != m_activeConfig.port ||
-           m_config.password != m_activeConfig.password;
+           m_config.password != m_activeConfig.password ||
+           // Only the uid, not the display name: the name is informational server-side, and
+           // churning the connection over a cosmetic rename would cost a real audio gap for
+           // nothing. An empty uid is never treated as a change -- it only means "nothing better
+           // is known yet", and reconnecting to hand the relay a worse identity helps no one.
+           (!m_identity.uid.empty() && m_identity.uid != m_activeUid);
 }
 
 void VoiceNetworkClient::setConnected(bool connected) {
@@ -403,6 +408,7 @@ void VoiceNetworkClient::threadMain() {
                 {
                     std::lock_guard<std::mutex> lock(m_configMutex);
                     m_activeConfig = config;
+                    m_activeUid = identity.uid;
                 }
                 {
                     std::lock_guard<std::mutex> lock(m_sendMutex);

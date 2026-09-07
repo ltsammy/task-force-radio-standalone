@@ -26,6 +26,12 @@ namespace voice {
 // One row of State's per-tick audibility solver output, translated into Voice/'s own vocabulary.
 struct AudibilityUpdate {
     std::string uid;
+    // Secondary lookup key. The uid is authoritative, but it only resolves once the SQF side has
+    // reported a getPlayerUID for that unit; until then State falls back to the nickname, and a
+    // remote that connected before its own UID resolved is registered on the relay under its
+    // nickname too. Matching on either means one missing/late UID can no longer make a single
+    // player permanently inaudible to a single listener.
+    std::string nickname;
     float gain = 0.0f;
     float azimuth = 0.0f;
     bool muted = false;
@@ -129,6 +135,9 @@ private:
     // tick-thread-only.
     mutable std::mutex m_rosterMutex;
     std::unordered_map<std::string, uint32_t> m_uidToSession;
+    // Same roster, keyed by the display name the remote handshook with -- the fallback path for
+    // AudibilityUpdate::nickname above.
+    std::unordered_map<std::string, uint32_t> m_nameToSession;
 
     // Tick-thread-only (single caller: applyAudibility, always from Extension.cpp's tick) -- no
     // synchronization needed.

@@ -6,8 +6,10 @@
 #include <mmdeviceapi.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <string>
 
 #include "AudioDeviceUtil.h"
 #include "Log.h"
@@ -168,12 +170,43 @@ void PlaybackMixer::generateChunkLocked() {
 void PlaybackMixer::threadMain() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-    IMMDevice* device = AudioDeviceUtil::getDefaultDevice(AudioFlow::Render);
-    if (device == nullptr) {
-        logLine("playback: no default speaker/headset device available");
-        CoUninitialize();
-        return;
+    // Outer supervision loop -- same reasoning as WasapiCaptureEngine::threadMain(). Every
+    // failure path below used to be terminal: no default speaker/headset yet while Arma was
+    // starting, an activation failure while an audio driver was still coming up, or the endpoint
+    // later being unplugged/invalidated all left playback dead for the rest of the process. A
+    // player in that state hears nobody at all and has no way back short of restarting Arma.
+    unsigned failureCount = 0;
+    while (!m_stopRequested.load()) {
+        const bool wasRunning = runDeviceSession();
+        if (m_stopRequested.load()) break;
+
+        if (wasRunning) {
+            failureCount = 0;
+            logLine("playback: device session ended (device lost or switched) -- reopening");
+        } else if ((++failureCount % 30) == 1) {
+            // Throttled: with no output device at all this repeats forever, ~once every 30s.
+            logLine("playback: no usable speaker/headset device (attempt " +
+                   std::to_string(failureCount) + ") -- retrying every second");
+        }
+
+        // Mix/resampler state belongs to the device that is going away; a new device may well
+        // have a different sample rate.
+        {
+            std::lock_guard<std::mutex> lock(m_sourcesMutex);
+            m_mixed48k.clear();
+            m_resampleCursor = 0.0;
+        }
+
+        for (int i = 0; i < 10 && !m_stopRequested.load(); ++i) Sleep(100);
     }
+
+    CoUninitialize();
+}
+
+bool PlaybackMixer::runDeviceSession() {
+    IMMDevice* device = AudioDeviceUtil::getDefaultDevice(AudioFlow::Render);
+    if (device == nullptr) return false;
+    const std::wstring deviceId = AudioDeviceUtil::getDeviceId(device);
 
     IAudioClient* audioClient = nullptr;
     HRESULT hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
@@ -181,8 +214,7 @@ void PlaybackMixer::threadMain() {
     device->Release();
     if (FAILED(hr) || audioClient == nullptr) {
         logLine("playback: IAudioClient activation failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
-        CoUninitialize();
-        return;
+        return false;
     }
 
     WAVEFORMATEX* mixFormat = nullptr;
@@ -190,8 +222,7 @@ void PlaybackMixer::threadMain() {
     if (FAILED(hr) || mixFormat == nullptr) {
         logLine("playback: GetMixFormat failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
         audioClient->Release();
-        CoUninitialize();
-        return;
+        return false;
     }
 
     const uint32_t deviceSampleRate = mixFormat->nSamplesPerSec;
@@ -207,8 +238,7 @@ void PlaybackMixer::threadMain() {
                "-bit, not float) -- giving up rather than risk garbage audio output");
         CoTaskMemFree(mixFormat);
         audioClient->Release();
-        CoUninitialize();
-        return;
+        return false;
     }
 
     constexpr REFERENCE_TIME kBufferDuration = 200000;  // 20ms in 100ns units
@@ -219,16 +249,14 @@ void PlaybackMixer::threadMain() {
     if (FAILED(hr) || deviceChannels == 0) {
         logLine("playback: IAudioClient::Initialize failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
         audioClient->Release();
-        CoUninitialize();
-        return;
+        return false;
     }
 
     const HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (event == nullptr) {
         logLine("playback: CreateEventW failed, error=" + std::to_string(GetLastError()));
         audioClient->Release();
-        CoUninitialize();
-        return;
+        return false;
     }
     audioClient->SetEventHandle(event);
 
@@ -240,8 +268,7 @@ void PlaybackMixer::threadMain() {
                toHex(static_cast<uint32_t>(hr)));
         CloseHandle(event);
         audioClient->Release();
-        CoUninitialize();
-        return;
+        return false;
     }
 
     UINT32 bufferFrameCount = 0;
@@ -253,8 +280,7 @@ void PlaybackMixer::threadMain() {
         renderClient->Release();
         CloseHandle(event);
         audioClient->Release();
-        CoUninitialize();
-        return;
+        return false;
     }
 
     logLine("playback: started, device format " + std::to_string(deviceSampleRate) + "Hz/" +
@@ -266,86 +292,116 @@ void PlaybackMixer::threadMain() {
     // when they don't, same reasoning as WasapiCaptureEngine's capture-side resampler.
     const double step = static_cast<double>(kInternalSampleRate) / static_cast<double>(deviceSampleRate);
     std::vector<float> deviceScratch;  // reused conversion buffer for the non-float device-format path
+    // Polled default-endpoint check -- see WasapiCaptureEngine::runDeviceSession() for why this
+    // is a poll and not an IMMNotificationClient.
+    auto lastDeviceCheck = std::chrono::steady_clock::now();
 
     while (!m_stopRequested.load()) {
         const DWORD waitResult = WaitForSingleObject(event, 200);
-        if (waitResult != WAIT_OBJECT_0) continue;  // timeout -- just re-check the stop flag
+        if (waitResult != WAIT_OBJECT_0 && waitResult != WAIT_TIMEOUT) {
+            break;  // the event handle itself went bad -- end the session and reopen
+        }
 
-        UINT32 paddingFrames = 0;
-        if (FAILED(audioClient->GetCurrentPadding(&paddingFrames))) continue;
-        const UINT32 framesNeeded = bufferFrameCount - paddingFrames;
-        if (framesNeeded == 0) continue;
-
-        BYTE* data = nullptr;
-        hr = renderClient->GetBuffer(framesNeeded, &data);
-        if (FAILED(hr) || data == nullptr) continue;
-
-        {
-            std::lock_guard<std::mutex> lock(m_sourcesMutex);
-
-            // Top up m_mixed48k until the resampler has enough to satisfy framesNeeded device-rate
-            // output frames, then interpolate directly into the WASAPI buffer.
-            float* floatOut = isFloat ? reinterpret_cast<float*>(data) : nullptr;
-            if (!isFloat && bitsPerSample == 16) deviceScratch.resize(static_cast<size_t>(framesNeeded) * 2);
-
-            for (UINT32 f = 0; f < framesNeeded; ++f) {
-                while (static_cast<size_t>(m_resampleCursor) + 1 >= m_mixed48k.size() / 2) {
-                    generateChunkLocked();
+        if (waitResult == WAIT_OBJECT_0) {
+            UINT32 paddingFrames = 0;
+            // A failure here (typically AUDCLNT_E_DEVICE_INVALIDATED after an unplug) used to
+            // `continue`, which spun on a dead audio client forever and left the player deaf.
+            if (FAILED(audioClient->GetCurrentPadding(&paddingFrames))) break;
+            const UINT32 framesNeeded = bufferFrameCount - paddingFrames;
+            if (framesNeeded > 0) {
+                BYTE* data = nullptr;
+                hr = renderClient->GetBuffer(framesNeeded, &data);
+                if (FAILED(hr) || data == nullptr) {
+                    if (hr == AUDCLNT_E_DEVICE_INVALIDATED || hr == AUDCLNT_E_NOT_INITIALIZED) break;
+                    continue;  // transient (e.g. AUDCLNT_E_BUFFER_TOO_LARGE) -- try again
                 }
 
-                const size_t idx0 = static_cast<size_t>(m_resampleCursor) * 2;
-                const size_t idx1 = idx0 + 2;
-                const double frac = m_resampleCursor - std::floor(m_resampleCursor);
-                const float left = static_cast<float>(m_mixed48k[idx0] * (1.0 - frac) +
-                                                       m_mixed48k[idx1] * frac);
-                const float right = static_cast<float>(m_mixed48k[idx0 + 1] * (1.0 - frac) +
-                                                        m_mixed48k[idx1 + 1] * frac);
-                m_resampleCursor += step;
+                {
+                    std::lock_guard<std::mutex> lock(m_sourcesMutex);
 
-                if (isFloat) {
-                    // Stride is deviceChannels, not 2: a >2-channel device (rare in shared mode,
-                    // but possible, e.g. 5.1) would otherwise overlap consecutive frames.
-                    const size_t base = static_cast<size_t>(f) * deviceChannels;
-                    floatOut[base] = left;
-                    if (deviceChannels > 1) floatOut[base + 1] = right;
-                    for (uint16_t c = 2; c < deviceChannels; ++c) floatOut[base + c] = 0.0f;
-                } else if (bitsPerSample == 16) {
-                    deviceScratch[static_cast<size_t>(f) * 2] = left;
-                    deviceScratch[static_cast<size_t>(f) * 2 + 1] = right;
+                    // Top up m_mixed48k until the resampler has enough to satisfy framesNeeded
+                    // device-rate output frames, then interpolate directly into the WASAPI buffer.
+                    float* floatOut = isFloat ? reinterpret_cast<float*>(data) : nullptr;
+                    if (!isFloat && bitsPerSample == 16)
+                        deviceScratch.resize(static_cast<size_t>(framesNeeded) * 2);
+
+                    for (UINT32 f = 0; f < framesNeeded; ++f) {
+                        while (static_cast<size_t>(m_resampleCursor) + 1 >= m_mixed48k.size() / 2) {
+                            generateChunkLocked();
+                        }
+
+                        const size_t idx0 = static_cast<size_t>(m_resampleCursor) * 2;
+                        const size_t idx1 = idx0 + 2;
+                        const double frac = m_resampleCursor - std::floor(m_resampleCursor);
+                        const float left = static_cast<float>(m_mixed48k[idx0] * (1.0 - frac) +
+                                                               m_mixed48k[idx1] * frac);
+                        const float right = static_cast<float>(m_mixed48k[idx0 + 1] * (1.0 - frac) +
+                                                                m_mixed48k[idx1 + 1] * frac);
+                        m_resampleCursor += step;
+
+                        if (isFloat) {
+                            // Stride is deviceChannels, not 2: a >2-channel device (rare in shared
+                            // mode, but possible, e.g. 5.1) would otherwise overlap consecutive
+                            // frames.
+                            const size_t base = static_cast<size_t>(f) * deviceChannels;
+                            floatOut[base] = left;
+                            if (deviceChannels > 1) floatOut[base + 1] = right;
+                            for (uint16_t c = 2; c < deviceChannels; ++c) floatOut[base + c] = 0.0f;
+                        } else if (bitsPerSample == 16) {
+                            deviceScratch[static_cast<size_t>(f) * 2] = left;
+                            deviceScratch[static_cast<size_t>(f) * 2 + 1] = right;
+                        }
+                    }
+
+                    if (!isFloat && bitsPerSample == 16) {
+                        auto* pcmOut = reinterpret_cast<int16_t*>(data);
+                        for (UINT32 f = 0; f < framesNeeded; ++f) {
+                            const float l =
+                                std::clamp(deviceScratch[static_cast<size_t>(f) * 2], -1.0f, 1.0f);
+                            const float r =
+                                std::clamp(deviceScratch[static_cast<size_t>(f) * 2 + 1], -1.0f, 1.0f);
+                            pcmOut[static_cast<size_t>(f) * deviceChannels] =
+                                static_cast<int16_t>(l * 32767.0f);
+                            if (deviceChannels > 1)
+                                pcmOut[static_cast<size_t>(f) * deviceChannels + 1] =
+                                    static_cast<int16_t>(r * 32767.0f);
+                            for (uint16_t c = 2; c < deviceChannels; ++c)
+                                pcmOut[static_cast<size_t>(f) * deviceChannels + c] = 0;
+                        }
+                    }
+
+                    // Drop fully-consumed 48kHz samples from the front so m_mixed48k doesn't grow
+                    // unboundedly, shifting the cursor to match.
+                    const size_t consumedFrames = static_cast<size_t>(m_resampleCursor);
+                    if (consumedFrames > 0 && consumedFrames * 2 <= m_mixed48k.size()) {
+                        m_mixed48k.erase(
+                            m_mixed48k.begin(),
+                            m_mixed48k.begin() + static_cast<ptrdiff_t>(consumedFrames * 2));
+                        m_resampleCursor -= static_cast<double>(consumedFrames);
+                    }
                 }
-            }
 
-            if (!isFloat && bitsPerSample == 16) {
-                auto* pcmOut = reinterpret_cast<int16_t*>(data);
-                for (UINT32 f = 0; f < framesNeeded; ++f) {
-                    const float l = std::clamp(deviceScratch[static_cast<size_t>(f) * 2], -1.0f, 1.0f);
-                    const float r = std::clamp(deviceScratch[static_cast<size_t>(f) * 2 + 1], -1.0f, 1.0f);
-                    pcmOut[static_cast<size_t>(f) * deviceChannels] = static_cast<int16_t>(l * 32767.0f);
-                    if (deviceChannels > 1)
-                        pcmOut[static_cast<size_t>(f) * deviceChannels + 1] = static_cast<int16_t>(r * 32767.0f);
-                    for (uint16_t c = 2; c < deviceChannels; ++c)
-                        pcmOut[static_cast<size_t>(f) * deviceChannels + c] = 0;
-                }
-            }
-
-            // Drop fully-consumed 48kHz samples from the front so m_mixed48k doesn't grow
-            // unboundedly, shifting the cursor to match.
-            const size_t consumedFrames = static_cast<size_t>(m_resampleCursor);
-            if (consumedFrames > 0 && consumedFrames * 2 <= m_mixed48k.size()) {
-                m_mixed48k.erase(m_mixed48k.begin(),
-                                 m_mixed48k.begin() + static_cast<ptrdiff_t>(consumedFrames * 2));
-                m_resampleCursor -= static_cast<double>(consumedFrames);
+                renderClient->ReleaseBuffer(framesNeeded, 0);
             }
         }
 
-        renderClient->ReleaseBuffer(framesNeeded, 0);
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastDeviceCheck >= std::chrono::seconds(1)) {
+            lastDeviceCheck = now;
+            const std::wstring currentDefault =
+                AudioDeviceUtil::getDefaultDeviceId(AudioFlow::Render);
+            if (!currentDefault.empty() && !deviceId.empty() && currentDefault != deviceId) {
+                logLine("playback: default speaker/headset changed -- switching to the new device");
+                break;
+            }
+        }
     }
 
     audioClient->Stop();
     renderClient->Release();
     CloseHandle(event);
     audioClient->Release();
-    CoUninitialize();
+    return true;
 }
 
 }  // namespace voice

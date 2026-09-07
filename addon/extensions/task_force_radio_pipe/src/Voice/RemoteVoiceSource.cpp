@@ -44,8 +44,19 @@ bool RemoteVoiceSource::tryProduceNextFrame() {
 
     if (state.muted) {
         m_isPlaying = false;
+        m_concealmentCount = 0;
+        // Actually drop the queued packets, and always report "produced nothing".
+        //
+        // This used to return m_pending.empty(), i.e. TRUE whenever anything was still queued --
+        // but true means "m_stereoFrame now holds a fresh frame", and nothing had touched
+        // m_stereoFrame, so render() replayed the LAST audible 20ms over and over. Nothing popped
+        // the queue either, so it stayed non-empty forever and the loop never stopped: a source
+        // muted mid-talkspurt (walked out of range, retuned, transmission ended) turned into a
+        // permanent 50 Hz buzz of that final frame. That is the intermittent
+        // noise/interference players have been reporting.
         std::lock_guard<std::mutex> lock(m_queueMutex);
-        return m_pending.empty();  // drain quietly rather than leaving stale packets queued
+        m_pending.clear();
+        return false;
     }
 
     std::vector<uint8_t> opus;

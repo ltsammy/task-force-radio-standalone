@@ -17,6 +17,15 @@ namespace {
 // bridge -- but changing it would break that exact-text match on the SQF side.
 const char* const kNotConnected = "Not connected to TeamSpeak";
 
+// How long the voice connection has to have been down before POS starts reporting it. Connecting
+// is not instant and never was: the server address only reaches the extension once SETCFG has
+// relayed the CBA settings, DNS has to resolve, and the handshake itself retries up to 5x1.5s.
+// Reporting from the very first POS meant every single mission start, and every brief reconnect
+// after a server hiccup, flashed a "Not connected" popup at the player that had already fixed
+// itself by the time they read it -- which is what made the message look random, and sent people
+// looking for causes (a TeamSpeak that isn't running, an audio driver) that were never involved.
+constexpr std::chrono::seconds kNotConnectedGrace(10);
+
 std::string firstToken(const std::string& payload) {
     const size_t tab = payload.find('\t');
     if (tab == std::string::npos) return payload;
@@ -51,7 +60,22 @@ std::string CommandProcessor::process(const std::string& input) {
     // SETCFG) must NOT be gated on this: m_voice.isConnected() is itself downstream of a
     // SETCFG-delivered host/port, so gating SETCFG on it would deadlock -- the address could
     // never be configured in the first place.
-    if (command == "POS" && !m_voice.isConnected()) return kNotConnected;
+    //
+    // Only reported once the outage has lasted kNotConnectedGrace, so normal startup and short
+    // reconnects stay silent. Called from Arma's own thread only, so the timestamp needs no
+    // synchronization.
+    if (command == "POS") {
+        if (m_voice.isConnected()) {
+            m_disconnectedSince = std::chrono::steady_clock::time_point();
+        } else {
+            const auto now = std::chrono::steady_clock::now();
+            if (m_disconnectedSince == std::chrono::steady_clock::time_point()) {
+                m_disconnectedSince = now;
+            } else if (now - m_disconnectedSince >= kNotConnectedGrace) {
+                return kNotConnected;
+            }
+        }
+    }
     return "OK";
 }
 

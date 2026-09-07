@@ -5,7 +5,9 @@
 #include <audioclient.h>
 #include <mmdeviceapi.h>
 
+#include <chrono>
 #include <cstring>
+#include <string>
 
 #include "AudioDeviceUtil.h"
 #include "Log.h"
@@ -107,12 +109,43 @@ void WasapiCaptureEngine::resampleAndEmit(uint32_t nativeSampleRate) {
 void WasapiCaptureEngine::threadMain() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-    IMMDevice* device = AudioDeviceUtil::getDefaultDevice(AudioFlow::Capture);
-    if (device == nullptr) {
-        logLine("capture: no default microphone device available");
-        CoUninitialize();
-        return;
+    // Outer supervision loop. runDeviceSession() used to BE threadMain, so any failure inside it
+    // -- no default device yet while Arma was still starting, activation failing while an audio
+    // driver was still coming up, the endpoint being unplugged or invalidated later -- simply
+    // returned and left the microphone permanently dead for the rest of the process, with nothing
+    // short of restarting Arma able to bring it back. That is exactly the "hears everyone, nobody
+    // hears me" shape of report. Now each of those cases just ends a session and a fresh one is
+    // opened a second later.
+    unsigned failureCount = 0;
+    while (!m_stopRequested.load()) {
+        const bool wasRunning = runDeviceSession();
+        if (m_stopRequested.load()) break;
+
+        if (wasRunning) {
+            failureCount = 0;
+            logLine("capture: device session ended (device lost or switched) -- reopening");
+        } else if ((++failureCount % 30) == 1) {
+            // Throttled: with no microphone present at all this repeats forever, ~once every 30s.
+            logLine("capture: no usable microphone (attempt " + std::to_string(failureCount) +
+                   ") -- retrying every second");
+        }
+
+        // Per-session accumulation state must not carry over into the next device, whose native
+        // format may differ entirely.
+        m_nativeMono.clear();
+        m_frameBuffer.clear();
+        m_resampleCursor = 0.0;
+
+        for (int i = 0; i < 10 && !m_stopRequested.load(); ++i) Sleep(100);
     }
+
+    CoUninitialize();
+}
+
+bool WasapiCaptureEngine::runDeviceSession() {
+    IMMDevice* device = AudioDeviceUtil::getDefaultDevice(AudioFlow::Capture);
+    if (device == nullptr) return false;
+    const std::wstring deviceId = AudioDeviceUtil::getDeviceId(device);
 
     IAudioClient* audioClient = nullptr;
     HRESULT hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
@@ -120,8 +153,7 @@ void WasapiCaptureEngine::threadMain() {
     device->Release();
     if (FAILED(hr) || audioClient == nullptr) {
         logLine("capture: IAudioClient activation failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
-        CoUninitialize();
-        return;
+        return false;
     }
 
     WAVEFORMATEX* mixFormat = nullptr;
@@ -129,8 +161,7 @@ void WasapiCaptureEngine::threadMain() {
     if (FAILED(hr) || mixFormat == nullptr) {
         logLine("capture: GetMixFormat failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
         audioClient->Release();
-        CoUninitialize();
-        return;
+        return false;
     }
 
     const uint32_t nativeSampleRate = mixFormat->nSamplesPerSec;
@@ -143,19 +174,17 @@ void WasapiCaptureEngine::threadMain() {
                                  kBufferDuration, 0, mixFormat, nullptr);
     CoTaskMemFree(mixFormat);
     mixFormat = nullptr;
-    if (FAILED(hr)) {
+    if (FAILED(hr) || nativeChannels == 0) {
         logLine("capture: IAudioClient::Initialize failed, hr=0x" + toHex(static_cast<uint32_t>(hr)));
         audioClient->Release();
-        CoUninitialize();
-        return;
+        return false;
     }
 
     const HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (event == nullptr) {
         logLine("capture: CreateEventW failed, error=" + std::to_string(GetLastError()));
         audioClient->Release();
-        CoUninitialize();
-        return;
+        return false;
     }
     audioClient->SetEventHandle(event);
 
@@ -167,8 +196,7 @@ void WasapiCaptureEngine::threadMain() {
                toHex(static_cast<uint32_t>(hr)));
         CloseHandle(event);
         audioClient->Release();
-        CoUninitialize();
-        return;
+        return false;
     }
 
     hr = audioClient->Start();
@@ -177,56 +205,81 @@ void WasapiCaptureEngine::threadMain() {
         captureClient->Release();
         CloseHandle(event);
         audioClient->Release();
-        CoUninitialize();
-        return;
+        return false;
     }
 
     logLine("capture: started, native format " + std::to_string(nativeSampleRate) + "Hz/" +
-           std::to_string(nativeChannels) + "ch/" + (isFloat ? std::string("float") : std::to_string(bitsPerSample) + "-bit PCM"));
+           std::to_string(nativeChannels) + "ch/" +
+           (isFloat ? std::string("float") : std::to_string(bitsPerSample) + "-bit PCM"));
 
-    thread_local std::vector<float> convertScratch;
+    std::vector<float> convertScratch;
+    // Polled rather than driven by an IMMNotificationClient: one string compare a second is far
+    // less machinery than a COM callback object, and a second of latency on "the user just
+    // switched their default microphone" is imperceptible next to the alternative (never noticing
+    // -- WASAPI does not tear down an initialized stream when the *default* endpoint changes).
+    auto lastDeviceCheck = std::chrono::steady_clock::now();
 
     while (!m_stopRequested.load()) {
         const DWORD waitResult = WaitForSingleObject(event, 200);
-        if (waitResult != WAIT_OBJECT_0) continue;  // timeout -- just re-check the stop flag
+        if (waitResult == WAIT_OBJECT_0) {
+            UINT32 packetLength = 0;
+            bool deviceLost = false;
+            while (SUCCEEDED(captureClient->GetNextPacketSize(&packetLength)) && packetLength > 0) {
+                BYTE* data = nullptr;
+                UINT32 framesAvailable = 0;
+                DWORD flags = 0;
+                hr = captureClient->GetBuffer(&data, &framesAvailable, &flags, nullptr, nullptr);
+                if (FAILED(hr)) {
+                    // AUDCLNT_E_DEVICE_INVALIDATED and friends: the endpoint is gone. This used
+                    // to break out of the inner loop only, then spin on a dead client forever.
+                    deviceLost = true;
+                    break;
+                }
 
-        UINT32 packetLength = 0;
-        while (SUCCEEDED(captureClient->GetNextPacketSize(&packetLength)) && packetLength > 0) {
-            BYTE* data = nullptr;
-            UINT32 framesAvailable = 0;
-            DWORD flags = 0;
-            hr = captureClient->GetBuffer(&data, &framesAvailable, &flags, nullptr, nullptr);
-            if (FAILED(hr)) break;
+                if ((flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0 || data == nullptr) {
+                    // A gap must still advance the resample position with real zeros, or timing
+                    // desyncs versus wall-clock -- feed synthesized silence through the normal path.
+                    convertScratch.assign(static_cast<size_t>(framesAvailable) * nativeChannels, 0.0f);
+                    appendNativeSamples(convertScratch.data(), framesAvailable, nativeChannels);
+                } else if (isFloat) {
+                    appendNativeSamples(reinterpret_cast<const float*>(data), framesAvailable,
+                                        nativeChannels);
+                } else if (bitsPerSample == 16) {
+                    const size_t sampleCount = static_cast<size_t>(framesAvailable) * nativeChannels;
+                    convertScratch.resize(sampleCount);
+                    const auto* src = reinterpret_cast<const int16_t*>(data);
+                    for (size_t i = 0; i < sampleCount; ++i) convertScratch[i] = src[i] / 32768.0f;
+                    appendNativeSamples(convertScratch.data(), framesAvailable, nativeChannels);
+                }
+                // Any other format (rare for a shared-mode GetMixFormat result) is silently
+                // dropped: no frames get produced from it rather than crashing on an exotic device.
 
-            if ((flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0 || data == nullptr) {
-                // A gap must still advance the resample position with real zeros, or timing
-                // desyncs versus wall-clock -- feed synthesized silence through the normal path.
-                convertScratch.assign(static_cast<size_t>(framesAvailable) * nativeChannels, 0.0f);
-                appendNativeSamples(convertScratch.data(), framesAvailable, nativeChannels);
-            } else if (isFloat) {
-                appendNativeSamples(reinterpret_cast<const float*>(data), framesAvailable,
-                                    nativeChannels);
-            } else if (bitsPerSample == 16) {
-                const size_t sampleCount = static_cast<size_t>(framesAvailable) * nativeChannels;
-                convertScratch.resize(sampleCount);
-                const auto* src = reinterpret_cast<const int16_t*>(data);
-                for (size_t i = 0; i < sampleCount; ++i) convertScratch[i] = src[i] / 32768.0f;
-                appendNativeSamples(convertScratch.data(), framesAvailable, nativeChannels);
+                captureClient->ReleaseBuffer(framesAvailable);
             }
-            // Any other format (rare for a shared-mode GetMixFormat result) is silently dropped:
-            // no frames get produced from it rather than crashing on an exotic device.
+            if (deviceLost) break;
 
-            captureClient->ReleaseBuffer(framesAvailable);
+            resampleAndEmit(nativeSampleRate);
+        } else if (waitResult != WAIT_TIMEOUT) {
+            break;  // the event handle itself went bad -- end the session and reopen
         }
 
-        resampleAndEmit(nativeSampleRate);
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastDeviceCheck >= std::chrono::seconds(1)) {
+            lastDeviceCheck = now;
+            const std::wstring currentDefault =
+                AudioDeviceUtil::getDefaultDeviceId(AudioFlow::Capture);
+            if (!currentDefault.empty() && !deviceId.empty() && currentDefault != deviceId) {
+                logLine("capture: default microphone changed -- switching to the new device");
+                break;
+            }
+        }
     }
 
     audioClient->Stop();
     captureClient->Release();
     CloseHandle(event);
     audioClient->Release();
-    CoUninitialize();
+    return true;
 }
 
 }  // namespace voice

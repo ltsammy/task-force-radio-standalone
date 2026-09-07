@@ -101,6 +101,14 @@ private:
     ServerConfig m_config;      // desired config, set via setServer/setIdentity
     Identity m_identity;
     ServerConfig m_activeConfig;  // config the worker actually connected with
+    // uid the worker actually handshook with. The uid is our identity on the relay and every
+    // other client's only handle on us, but it isn't known at startup: State::myUid() starts out
+    // as the nickname and is superseded once the SQF side reports a real getPlayerUID. That
+    // change has to force a reconnect, because the relay only ever learns a uid from a
+    // ConnectRequest -- without this a client stayed registered under its startup identity for
+    // the whole session, so remote clients that HAD resolved its real UID never matched it to a
+    // voice session and simply never heard it (until it reconnected).
+    std::string m_activeUid;
 
     // Opaque to avoid <winsock2.h> here (same reasoning as PipeClient's HANDLE); actually a
     // SOCKET (UINT_PTR). INVALID_SOCKET is (SOCKET)(~0), i.e. all-ones -- matched via a sentinel

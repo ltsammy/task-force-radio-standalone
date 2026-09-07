@@ -90,7 +90,7 @@ void senderMain() {
                            g_state->voiceConfigString("voice_serverPassword", ""));
         g_voice->setMicVolume(g_state->voiceConfigFloat("voice_micVolume", 1.0f));
         g_voice->setSpeakerVolume(g_state->voiceConfigFloat("voice_speakerVolume", 1.0f));
-        g_voice->setVadThreshold(g_state->voiceConfigFloat("voice_vadThreshold", 0.01f));
+        g_voice->setVadThreshold(g_state->voiceConfigFloat("voice_vadThreshold", 0.005f));
         g_voice->setNoiseSuppressionEnabled(g_state->voiceConfigBool("voice_noiseSuppression", true));
         g_voice->setTransmitMode(parseTransmitMode(g_state->voiceConfigFloat("voice_transmitMode", 1.0f)));
 
@@ -138,8 +138,8 @@ void senderMain() {
         updates.reserve(units.size());
         for (const tfrs::AudibleUnit& unit : units) {
             updates.push_back(tfrs::voice::AudibilityUpdate{
-                unit.uid, unit.gain, unit.az, unit.muted, parseSourceEffect(unit.fx), unit.err,
-                unit.stereoMode});
+                unit.uid, unit.nickname, unit.gain, unit.az, unit.muted,
+                parseSourceEffect(unit.fx), unit.err, unit.stereoMode});
         }
         g_voice->applyAudibility(updates);
 

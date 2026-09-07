@@ -406,7 +406,17 @@ std::string State::myUid() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_myNickname.empty()) return std::string();
     std::unordered_map<std::string, std::string>::const_iterator it = m_nameToUid.find(m_myNickname);
-    return it != m_nameToUid.end() ? it->second : std::string();
+    if (it != m_nameToUid.end() && !it->second.empty()) return it->second;
+    // No getPlayerUID for us (yet, or ever -- fnc_sendPlayerInfo.sqf can only send one once Arma
+    // actually reports a UID for this unit). Fall back to the nickname, which is exactly what
+    // uidForLocked() does for REMOTE units, so both ends of a pair still agree on the same
+    // identity string and audibility keeps resolving.
+    //
+    // Returning an empty string here was a real "permanently offline" bug: the voice server
+    // rejects an empty uid outright (RelayServer.HandleConnectRequest -> BadRequest), so a client
+    // whose UID never resolved could never complete a handshake at all, and every POS reply stayed
+    // "not connected" until the player rejoined.
+    return m_myNickname;
 }
 
 std::string State::myNickname() const {
@@ -432,6 +442,10 @@ void State::setRemoteTx(const std::string& uid, bool active, const std::string& 
             break;
         }
     }
+    // The sender may be identified by nickname rather than by a real getPlayerUID -- that is
+    // myUid()'s documented fallback, and uidForLocked() mirrors it on this side. Without this,
+    // such a sender's radio transmissions would never register at all.
+    if (name.empty() && m_clients.find(uid) != m_clients.end()) name = uid;
     if (name.empty()) return;  // not yet resolved via the UID command -- nothing to attach this to
 
     if (!active || freq.empty()) {
@@ -446,7 +460,6 @@ void State::setRemoteTx(const std::string& uid, bool active, const std::string& 
     tx.subtype = subtype;
     tx.received = Clock::now();
     m_remoteTx[name] = tx;
-    m_talkingNames.insert(name);
 }
 
 void State::setVoiceConnected(bool connected) {
@@ -658,8 +671,19 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
                     }
                 }
             }
+        }
 
-            // -- 2) external speakers on the sender's frequency --------------
+        // -- 2) external speakers on the sender's frequency ------------------
+        // Deliberately NOT nested inside the (onSw || onLr) check above: hearing a transmission
+        // out of somebody's speaker has nothing to do with whether WE are tuned to that frequency
+        // -- that is the whole point of speaker mode (see old/ts/src/clientData.cpp's
+        // getAllRadios(), where the speaker loop likewise only needs the sender's range to reach
+        // us). It used to be nested, which made speaker mode dead in practice: a radio switched to
+        // speakers is explicitly removed from our own frequency list by
+        // fnc_sendFrequencyInfo.sqf ("If speakers are enabled we will not have it on our headset
+        // at the same time"), so the gate could essentially never be true for the one radio the
+        // speaker audio was supposed to come from.
+        if (inRange) {
             for (size_t i = 0; i < m_speakers.size(); ++i) {
                 const SpeakerData& speaker = m_speakers[i];
                 if (speaker.ownerNickname == other.nickname) continue;  // his own backpack
@@ -805,6 +829,15 @@ std::vector<AudibleUnit> State::computeAudibleUnits() {
     m_receivingFrom.clear();
     m_receivingAnyRadio = false;
     m_lrIncomingPending = false;
+
+    // Rebuilt from scratch every tick rather than accumulated: setRemoteTx() used to insert here
+    // and nothing ever erased, so IS_SPEAKING kept reporting anyone who had transmitted even once
+    // as still speaking forever (stuck setRandomLip / stuck speaking indicator).
+    m_talkingNames.clear();
+    for (std::unordered_map<std::string, RemoteTx>::const_iterator it = m_remoteTx.begin();
+         it != m_remoteTx.end(); ++it) {
+        if ((now - it->second.received) < kTxExpiry) m_talkingNames.insert(it->first);
+    }
 
     const RemoteClient* me = m_myNickname.empty() ? nullptr : findClientLocked(m_myNickname);
     if (me != nullptr && (now - me->lastUpdate) < kClientExpiry) {

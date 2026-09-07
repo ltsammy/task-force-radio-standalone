@@ -5,6 +5,7 @@
 // the original SQF and must keep working byte for byte.
 #pragma once
 
+#include <chrono>
 #include <string>
 
 namespace tfrs {
@@ -28,6 +29,10 @@ private:
 
     State& m_state;
     voice::VoiceSession& m_voice;
+
+    // When the voice connection was first observed down, or a default-constructed time_point
+    // while it is up. Drives the grace period in process(); Arma-thread-only.
+    std::chrono::steady_clock::time_point m_disconnectedSince;
 };
 
 }  // namespace tfrs

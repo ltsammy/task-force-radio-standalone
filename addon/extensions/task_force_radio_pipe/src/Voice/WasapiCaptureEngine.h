@@ -44,6 +44,10 @@ public:
 
 private:
     void threadMain();
+    // One microphone session: resolve the default device, run it until it is lost/switched/
+    // stopped, then tear it down. Returns true if the session actually got as far as capturing
+    // (so the caller can tell "device died" from "no device to open in the first place").
+    bool runDeviceSession();
     void appendNativeSamples(const float* interleaved, uint32_t frameCount, uint16_t channels);
     void resampleAndEmit(uint32_t nativeSampleRate);
 

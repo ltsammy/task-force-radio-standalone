@@ -67,6 +67,10 @@ public:
 
 private:
     void threadMain();
+    // One render-device session: resolve the default endpoint, run it until it is lost/switched/
+    // stopped, then tear it down. Returns true if the session actually got as far as rendering
+    // (so the caller can tell "device died" from "no device to open in the first place").
+    bool runDeviceSession();
     // Mixes one more 960-sample (20ms) chunk from every active source into m_mixed48k, applying
     // master volume, mute gate, and the soft-clip limiter.
     void generateChunkLocked();

@@ -35,6 +35,23 @@ IMMDevice* AudioDeviceUtil::getDefaultDevice(AudioFlow flow) {
     return device;
 }
 
+std::wstring AudioDeviceUtil::getDeviceId(IMMDevice* device) {
+    if (device == nullptr) return std::wstring();
+    LPWSTR id = nullptr;
+    if (FAILED(device->GetId(&id)) || id == nullptr) return std::wstring();
+    std::wstring result(id);
+    CoTaskMemFree(id);
+    return result;
+}
+
+std::wstring AudioDeviceUtil::getDefaultDeviceId(AudioFlow flow) {
+    IMMDevice* device = getDefaultDevice(flow);
+    if (device == nullptr) return std::wstring();
+    std::wstring result = getDeviceId(device);
+    device->Release();
+    return result;
+}
+
 bool AudioDeviceUtil::isMutedOrZeroVolume(IMMDevice* device) {
     if (device == nullptr) return false;
 

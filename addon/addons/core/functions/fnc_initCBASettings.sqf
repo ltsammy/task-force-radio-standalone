@@ -353,7 +353,8 @@
     "SLIDER",
     [ELSTRING(settings,voice_vadThreshold), ELSTRING(settings,voice_vadThreshold_desc)],
     localize ELSTRING(settings,clientside),
-    [0.001, 0.3, 0.01, 3],
+    // Compared against the raw (pre-AGC) mic level -- see TransmitController::onFrameCaptured.
+    [0.001, 0.3, 0.005, 3],
     2,
     {["voice_vadThreshold", _this] call TFAR_fnc_setPluginSetting;}
 ] call CBA_Settings_fnc_init;

@@ -52,8 +52,10 @@ public:
 
 private:
     void onFrameCaptured(const float* mono960);
-    bool determineShouldTransmit(float gainedRms);
-    bool evaluateVoiceActivation(float gainedRms);
+    // `level` is the pre-AGC, post-mic-volume RMS of the frame -- see onFrameCaptured for why the
+    // VAD must never be fed the AGC-amplified level.
+    bool determineShouldTransmit(float level);
+    bool evaluateVoiceActivation(float level);
 
     WasapiCaptureEngine m_capture;
     OpusVoiceEncoder m_encoder;
@@ -64,7 +66,7 @@ private:
     std::atomic<bool> m_micMuted{false};
     std::atomic<bool> m_hasAddonOverride{false};
     std::atomic<bool> m_addonOverrideValue{false};
-    std::atomic<float> m_vadThreshold{0.01f};
+    std::atomic<float> m_vadThreshold{0.005f};
     std::atomic<float> m_micVolume{1.0f};
     std::atomic<bool> m_noiseSuppressionEnabled{true};
     std::atomic<float> m_currentLevel{0.0f};

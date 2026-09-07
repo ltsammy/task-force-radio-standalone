@@ -33,11 +33,12 @@ void VoiceSession::start() {
         m_playback.enqueueOpusFrame(sessionId, opus, opusLen);
     };
     callbacks.onRemoteJoined = [this](uint32_t sessionId, const std::string& uid,
-                                      const std::string& /*name*/) {
+                                      const std::string& name) {
         m_playback.addSource(sessionId, uid);
         {
             std::lock_guard<std::mutex> lock(m_rosterMutex);
             m_uidToSession[uid] = sessionId;
+            if (!name.empty()) m_nameToSession[name] = sessionId;
         }
         // Starts muted (RemoteVoiceSource's own default) until the next applyAudibility() tick
         // (~66ms away, matching Extension.cpp's existing snapshot cadence) sets its real state --
@@ -49,6 +50,12 @@ void VoiceSession::start() {
         for (auto it = m_uidToSession.begin(); it != m_uidToSession.end(); ++it) {
             if (it->second == sessionId) {
                 m_uidToSession.erase(it);
+                break;
+            }
+        }
+        for (auto it = m_nameToSession.begin(); it != m_nameToSession.end(); ++it) {
+            if (it->second == sessionId) {
+                m_nameToSession.erase(it);
                 break;
             }
         }
@@ -100,6 +107,7 @@ void VoiceSession::start() {
             m_playback.removeAllSources();
             std::lock_guard<std::mutex> lock(m_rosterMutex);
             m_uidToSession.clear();
+            m_nameToSession.clear();
             std::lock_guard<std::mutex> txLock(m_txCacheMutex);
             m_txCache.clear();
         }
@@ -145,13 +153,29 @@ void VoiceSession::applyAudibility(const std::vector<AudibilityUpdate>& units) {
     {
         std::lock_guard<std::mutex> lock(m_rosterMutex);
         for (const AudibilityUpdate& unit : units) {
-            const auto it = m_uidToSession.find(unit.uid);
-            if (it == m_uidToSession.end()) continue;  // not on the voice server (yet)
+            uint32_t sessionId = 0;
+            bool resolved = false;
+            const auto uidIt = m_uidToSession.find(unit.uid);
+            if (uidIt != m_uidToSession.end()) {
+                sessionId = uidIt->second;
+                resolved = true;
+            } else if (!unit.nickname.empty()) {
+                // Fallback: the remote handshook under its nickname because its own getPlayerUID
+                // had not resolved yet (see State::myUid()), or ours for it has not. Without this
+                // the source stays permanently silent for this one listener -- the exact shape of
+                // the "some people can't hear one specific player" reports.
+                const auto nameIt = m_nameToSession.find(unit.nickname);
+                if (nameIt != m_nameToSession.end()) {
+                    sessionId = nameIt->second;
+                    resolved = true;
+                }
+            }
+            if (!resolved) continue;  // not on the voice server (yet)
 
-            seenSessionIds.push_back(it->second);
+            seenSessionIds.push_back(sessionId);
             m_playback.setSourceState(
-                it->second, RemoteSourceState{unit.gain, unit.azimuth, unit.muted, unit.effect,
-                                              unit.errorLevel, unit.stereoMode});
+                sessionId, RemoteSourceState{unit.gain, unit.azimuth, unit.muted, unit.effect,
+                                             unit.errorLevel, unit.stereoMode});
         }
     }
 
