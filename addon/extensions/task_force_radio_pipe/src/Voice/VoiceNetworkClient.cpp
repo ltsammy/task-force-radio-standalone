@@ -15,6 +15,12 @@
 namespace tfrs {
 namespace voice {
 
+// Not pulled in via <mstcpip.h> just for this one constant -- _WSAIOW is already provided by
+// <winsock2.h> above, and the value is a fixed part of the Winsock ABI.
+#ifndef SIO_UDP_CONNRESET
+#define SIO_UDP_CONNRESET _WSAIOW(IOC_VENDOR, 12)
+#endif
+
 namespace {
 
 constexpr int kHandshakeRetries = 5;
@@ -162,6 +168,18 @@ bool VoiceNetworkClient::resolveAndOpenSocket(const ServerConfig& config) {
     setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeoutMs),
                sizeof(timeoutMs));
 
+    // Windows-only trap, and a nasty one for a *connected* UDP socket: if any ICMP "port
+    // unreachable" comes back for a datagram we sent (a NAT/firewall on the path answering for a
+    // mapping it has dropped, the relay host being briefly unreachable, ...), Winsock latches that
+    // onto the socket and every later recv() returns WSAECONNRESET -- the socket is deaf from then
+    // on even though sends keep succeeding. That is indistinguishable from "the server never
+    // answered" in the handshake loop below. Turning the behavior off makes recv() ignore the ICMP
+    // error, which is what every other platform does anyway.
+    BOOL reportConnReset = FALSE;
+    DWORD ioctlBytes = 0;
+    WSAIoctl(s, SIO_UDP_CONNRESET, &reportConnReset, sizeof(reportConnReset), nullptr, 0,
+             &ioctlBytes, nullptr, nullptr);
+
     m_socket = reinterpret_cast<void*>(s);
     return true;
 }
@@ -183,17 +201,30 @@ bool VoiceNetworkClient::tryHandshake(const ServerConfig& config, const Identity
 
     const SOCKET s = reinterpret_cast<SOCKET>(m_socket);
     uint8_t recvBuf[2048];
+    // Every recv() failure other than the expected SO_RCVTIMEO timeout, remembered for the
+    // give-up log below. Without this, "the server never answered" and "our own socket errored"
+    // produced the exact same log line, which is not enough to tell a network path problem from a
+    // local one.
+    int lastRecvError = 0;
 
     for (int attempt = 0; attempt < kHandshakeRetries; ++attempt) {
         if (send(s, reinterpret_cast<const char*>(writer.data()), static_cast<int>(writer.size()),
                  0) < 0) {
+            logLine("handshake: send() failed, error=" + std::to_string(WSAGetLastError()) +
+                   " -- giving up on this socket");
             return false;  // socket itself is broken, retrying won't help
         }
 
         const auto deadline = std::chrono::steady_clock::now() + kHandshakeTimeout;
         while (std::chrono::steady_clock::now() < deadline) {
             const int n = recv(s, reinterpret_cast<char*>(recvBuf), sizeof(recvBuf), 0);
-            if (n <= 0) continue;  // SO_RCVTIMEO timeout or a transient error -- keep waiting
+            if (n <= 0) {
+                if (n < 0) {
+                    const int err = WSAGetLastError();
+                    if (err != WSAETIMEDOUT) lastRecvError = err;
+                }
+                continue;  // SO_RCVTIMEO timeout or a transient error -- keep waiting
+            }
 
             const PacketType type = static_cast<PacketType>(recvBuf[0]);
             if (type == PacketType::ConnectAccept) {
@@ -244,7 +275,10 @@ bool VoiceNetworkClient::tryHandshake(const ServerConfig& config, const Identity
     if ((++m_handshakeSilentFailCount % 10) == 1) {
         logLine("handshake: sent " + std::to_string(kHandshakeRetries) +
                " ConnectRequest(s) to '" + config.host + ":" + std::to_string(config.port) +
-               "', got zero reply -- check that outbound/inbound UDP to that port isn't being "
+               "', got zero reply (recv errors: " +
+               (lastRecvError == 0 ? std::string("none, only timeouts")
+                                   : std::to_string(lastRecvError)) +
+               ") -- check that outbound/inbound UDP to that port isn't being "
                "blocked by a firewall or antivirus on this PC");
     }
     return false;
