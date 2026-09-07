@@ -69,10 +69,11 @@ void PlaybackMixer::setSourceState(uint32_t sessionId, const RemoteSourceState& 
     if (it != m_sources.end()) it->second->setState(state);
 }
 
-void PlaybackMixer::enqueueOpusFrame(uint32_t sessionId, const uint8_t* opus, size_t opusLen) {
+void PlaybackMixer::enqueueOpusFrame(uint32_t sessionId, const uint8_t* opus, size_t opusLen,
+                                     bool isLast) {
     std::lock_guard<std::mutex> lock(m_sourcesMutex);
     const auto it = m_sources.find(sessionId);
-    if (it != m_sources.end()) it->second->enqueueOpusFrame(opus, opusLen);
+    if (it != m_sources.end()) it->second->enqueueOpusFrame(opus, opusLen, isLast);
 }
 
 void PlaybackMixer::removeSource(uint32_t sessionId) {

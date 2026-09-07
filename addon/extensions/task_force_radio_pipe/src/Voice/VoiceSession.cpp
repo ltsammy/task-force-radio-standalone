@@ -25,12 +25,14 @@ void VoiceSession::start() {
     m_playback.start();
 
     VoiceNetworkClient::Callbacks callbacks;
-    callbacks.onVoiceFrame = [this](uint32_t sessionId, uint16_t /*sequence*/, bool /*isLast*/,
+    callbacks.onVoiceFrame = [this](uint32_t sessionId, uint16_t /*sequence*/, bool isLast,
                                     const uint8_t* opus, size_t opusLen) {
-        // Sequence/isLast aren't consumed yet -- RemoteVoiceSource's jitter buffer doesn't need
-        // them (PLC covers gaps), and end-of-talkspurt is currently inferred from queue draining,
-        // matching the C# reference's own EnqueueOpusFrame signature.
-        m_playback.enqueueOpusFrame(sessionId, opus, opusLen);
+        // Sequence still isn't consumed (PLC covers gaps), but isLast is: the sender emits exactly
+        // one frame flagged LastFrame when it stops transmitting, and dropping that flag meant
+        // end-of-talkspurt could only ever be inferred from the queue running dry -- i.e. every
+        // single normal end of a transmission burned through the full 200ms concealment budget
+        // first, and then logged itself as a packet-loss event.
+        m_playback.enqueueOpusFrame(sessionId, opus, opusLen, isLast);
     };
     callbacks.onRemoteJoined = [this](uint32_t sessionId, const std::string& uid,
                                       const std::string& name) {

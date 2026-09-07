@@ -24,9 +24,9 @@ void RemoteVoiceSource::ensureEffectChain(SourceEffect effect) {
     m_effectChain = std::make_unique<RadioEffectChain>(effect);
 }
 
-void RemoteVoiceSource::enqueueOpusFrame(const uint8_t* opus, size_t opusLen) {
+void RemoteVoiceSource::enqueueOpusFrame(const uint8_t* opus, size_t opusLen, bool isLast) {
     std::lock_guard<std::mutex> lock(m_queueMutex);
-    m_pending.emplace_back(opus, opus + opusLen);
+    m_pending.push_back(PendingFrame{std::vector<uint8_t>(opus, opus + opusLen), isLast});
     while (m_pending.size() > kMaxQueuedFrames) m_pending.pop_front();
 }
 
@@ -59,21 +59,31 @@ bool RemoteVoiceSource::tryProduceNextFrame() {
         return false;
     }
 
-    std::vector<uint8_t> opus;
+    PendingFrame frame;
     bool hasPacket = false;
     bool notEnoughBuffered = false;
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
         if (!m_pending.empty()) {
-            opus = std::move(m_pending.front());
+            frame = std::move(m_pending.front());
             m_pending.pop_front();
             hasPacket = true;
             if (!m_isPlaying && static_cast<int>(m_pending.size()) < kJitterTargetFrames - 1) {
                 // (Re)starting a talkspurt: wait for a short jitter cushion before audio begins,
                 // to smooth out network jitter on the first few frames of a PTT press. Put the
-                // packet back rather than drop it.
-                m_pending.push_front(std::move(opus));
-                notEnoughBuffered = true;
+                // packet back rather than drop it -- unless the whole talkspurt is already here
+                // (its end-of-talkspurt frame is among what we hold), because then no further
+                // frames are coming and waiting for the cushion to fill would stall it forever.
+                // A transmission shorter than the cushion used to sit in the queue until the
+                // NEXT one arrived and pushed it out.
+                const bool haveWholeTalkspurt =
+                    frame.isLast ||
+                    std::any_of(m_pending.begin(), m_pending.end(),
+                                [](const PendingFrame& f) { return f.isLast; });
+                if (!haveWholeTalkspurt) {
+                    m_pending.push_front(std::move(frame));
+                    notEnoughBuffered = true;
+                }
             }
         }
     }
@@ -98,7 +108,13 @@ bool RemoteVoiceSource::tryProduceNextFrame() {
     } else {
         m_isPlaying = true;
         m_concealmentCount = 0;
-        m_decoder.decode(opus.data(), static_cast<int>(opus.size()), m_decodedShorts.data());
+        m_decoder.decode(frame.data.data(), static_cast<int>(frame.data.size()),
+                         m_decodedShorts.data());
+        // The sender's explicit end-of-talkspurt frame (a deliberate frame of digital silence).
+        // Clearing m_isPlaying here is what stops the next dry queue from being treated as packet
+        // loss: no 200ms of concealment audio smeared onto the end of every transmission, no
+        // bogus "exhausted PLC" log line, and the jitter cushion is rebuilt for the next one.
+        if (frame.isLast) m_isPlaying = false;
     }
 
     for (size_t i = 0; i < m_decodedShorts.size(); ++i) m_monoFrame[i] = m_decodedShorts[i] / 32768.0f;

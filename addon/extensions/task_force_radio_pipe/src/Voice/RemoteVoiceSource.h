@@ -41,7 +41,8 @@ public:
     const std::string& uid() const { return m_uid; }
 
     // Called from the network receive thread as VoiceDown packets arrive for this session.
-    void enqueueOpusFrame(const uint8_t* opus, size_t opusLen);
+    // isLast marks the sender's explicit end-of-talkspurt frame (VoiceUp's LastFrame flag).
+    void enqueueOpusFrame(const uint8_t* opus, size_t opusLen, bool isLast);
 
     // Called from the extension's main tick thread (Phase 4: with State's computed audibility).
     void setState(const RemoteSourceState& state);
@@ -60,13 +61,13 @@ private:
     bool tryProduceNextFrame();
     void ensureEffectChain(SourceEffect effect);
 
-    // Live diagnostic evidence (extension.log, "exhausted PLC" lines) showed many simultaneous/
-    // repeated exhaustions across sessions in real play -- PLC exhaustion specifically means
-    // packets stopped arriving with no explicit end-of-talkspurt marker (a real "stopped talking"
-    // is handled separately via VoiceUp's LastFrame flag, never touches this path), so this was
-    // real audible cutout, not a logging false alarm. The original 40ms/100ms budgets were too
-    // tight to absorb brief gaps -- doubled both. Still small enough to not add noticeably more
-    // latency to when a talkspurt audibly starts.
+    // PLC exhaustion means packets stopped arriving with no explicit end-of-talkspurt marker.
+    // That claim only became TRUE once enqueueOpusFrame started honouring VoiceUp's LastFrame
+    // flag: before that the flag was discarded, so an ordinary "stopped talking" also drained the
+    // queue and every normal end of a transmission ran the full concealment budget and logged
+    // itself here. The budgets themselves were doubled from the original 40ms/100ms, which were
+    // too tight to absorb brief gaps, and are still small enough not to noticeably delay the
+    // audible start of a talkspurt.
     static constexpr int kJitterTargetFrames = 4;     // ~80ms buffered before playback starts
     static constexpr int kMaxConcealmentFrames = 10;  // ~200ms of PLC before going silent
     static constexpr size_t kMaxQueuedFrames = 10;   // bounds stall latency
@@ -74,8 +75,13 @@ private:
     const uint32_t m_sessionId;
     const std::string m_uid;
 
+    struct PendingFrame {
+        std::vector<uint8_t> data;
+        bool isLast = false;
+    };
+
     std::mutex m_queueMutex;
-    std::deque<std::vector<uint8_t>> m_pending;
+    std::deque<PendingFrame> m_pending;
 
     // Render-thread-only (single caller: the WASAPI render callback) -- no synchronization needed.
     OpusVoiceDecoder m_decoder;
