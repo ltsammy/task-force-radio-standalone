@@ -199,7 +199,6 @@ bool VoiceNetworkClient::tryHandshake(const ServerConfig& config, const Identity
     writer.writeString8(uid);
     writer.writeString8(name);
 
-    const SOCKET s = reinterpret_cast<SOCKET>(m_socket);
     uint8_t recvBuf[2048];
     // Every recv() failure other than the expected SO_RCVTIMEO timeout, remembered for the
     // give-up log below. Without this, "the server never answered" and "our own socket errored"
@@ -208,11 +207,28 @@ bool VoiceNetworkClient::tryHandshake(const ServerConfig& config, const Identity
     int lastRecvError = 0;
 
     for (int attempt = 0; attempt < kHandshakeRetries; ++attempt) {
+        // A FRESH socket per attempt, not one socket for all of them. A new socket means a new
+        // local port, and therefore a new NAT/conntrack mapping the whole way out -- which is the
+        // entire difference between five tries and one.
+        //
+        // This matters because of a reproducible failure seen on the production relay: a client
+        // whose connection dropped kept retrying for 2m21s without a single ConnectRequest ever
+        // reaching the server, and recovered the instant an unrelated application opened its own
+        // UDP flow to the same host. Retrying five times down one wedged mapping is not five
+        // tries, it is one; the affected players sit behind NATs handing out a narrow, low source
+        // port range (observed: 6099 / 8734 / 8922 for one player), where a single unlucky mapping
+        // is exactly the kind of thing that stays broken until something forces a new one.
+        if (!resolveAndOpenSocket(config)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            continue;
+        }
+        const SOCKET s = reinterpret_cast<SOCKET>(m_socket);
+
         if (send(s, reinterpret_cast<const char*>(writer.data()), static_cast<int>(writer.size()),
                  0) < 0) {
             logLine("handshake: send() failed, error=" + std::to_string(WSAGetLastError()) +
-                   " -- giving up on this socket");
-            return false;  // socket itself is broken, retrying won't help
+                   " -- trying a fresh socket");
+            continue;  // this socket is broken; the next attempt opens a new one
         }
 
         const auto deadline = std::chrono::steady_clock::now() + kHandshakeTimeout;
@@ -438,7 +454,8 @@ void VoiceNetworkClient::threadMain() {
         }
 
         if (!m_connected.load()) {
-            if (resolveAndOpenSocket(config) && tryHandshake(config, identity)) {
+            // tryHandshake() opens its own socket per attempt -- see its doc comment.
+            if (tryHandshake(config, identity)) {
                 {
                     std::lock_guard<std::mutex> lock(m_configMutex);
                     m_activeConfig = config;

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <mutex>
 #include <optional>
@@ -100,13 +101,56 @@ void senderMain() {
         // VoiceSession::start() seeds itself with get superseded the moment getPlayerUID resolves.
         g_voice->setIdentity(g_state->myUid(), g_state->myNickname());
 
-        // Radio-transmit relay: what WE'RE sending (unconditionally every tick -- see
-        // VoiceSession::sendRadioTx's doc comment) and what we've learned OTHERS are sending
+        // Radio-transmit relay: what WE'RE sending, and what we've learned OTHERS are sending
         // (feeds back into State's audibility solver via setRemoteTx).
+        //
+        // Sent on change, then refreshed only while actually transmitting. This used to fire
+        // every single tick unconditionally, which meant ~15 packets/second per client saying
+        // "I am not transmitting" -- and the relay fans every one of those out to every other
+        // client, so the idle cost was O(N^2): measured at 5,700 packets/second for 20 players
+        // (65% of all traffic on the wire), and 1.3 million/second at the server's 300-client
+        // limit. A live capture on the production relay showed 595 packets/s in and 14,892 out.
+        //
+        // The receiving side expires a transmission it stops hearing about after 1.5s (kTxExpiry,
+        // matched in both State.cpp and VoiceSession.cpp), so a refresh every 500ms while active
+        // gives three chances to survive a dropped datagram. Going inactive is announced on a few
+        // consecutive ticks rather than once, so releasing the tangent stays crisp even if one of
+        // those packets is lost -- and if they all are, the receiver's own expiry still cleans up.
         const tfrs::State::LocalTxState localTx = g_state->localTxState();
         const uint16_t clampedRange =
             static_cast<uint16_t>(std::clamp(localTx.range, 0.0f, 65535.0f));
-        g_voice->sendRadioTx(localTx.active, localTx.freq, clampedRange, localTx.subtype);
+        {
+            static bool s_sentActive = false;
+            static std::string s_sentFreq;
+            static std::string s_sentSubtype;
+            static uint16_t s_sentRange = 0;
+            static std::chrono::steady_clock::time_point s_lastSend;
+            static int s_inactiveRepeatsLeft = 0;
+
+            const bool changed = localTx.active != s_sentActive ||
+                                 (localTx.active && (localTx.freq != s_sentFreq ||
+                                                     clampedRange != s_sentRange ||
+                                                     localTx.subtype != s_sentSubtype));
+            const auto now = std::chrono::steady_clock::now();
+            bool send = changed;
+            if (changed && !localTx.active) s_inactiveRepeatsLeft = 2;
+            if (!send && !localTx.active && s_inactiveRepeatsLeft > 0) {
+                --s_inactiveRepeatsLeft;
+                send = true;
+            }
+            if (!send && localTx.active && (now - s_lastSend) >= std::chrono::milliseconds(500)) {
+                send = true;
+            }
+
+            if (send) {
+                g_voice->sendRadioTx(localTx.active, localTx.freq, clampedRange, localTx.subtype);
+                s_sentActive = localTx.active;
+                s_sentFreq = localTx.freq;
+                s_sentSubtype = localTx.subtype;
+                s_sentRange = clampedRange;
+                s_lastSend = now;
+            }
+        }
         for (const tfrs::voice::RadioTxInfo& tx : g_voice->currentRadioTx()) {
             g_state->setRemoteTx(tx.uid, tx.active, tx.freq, static_cast<float>(tx.range), tx.subtype);
         }
