@@ -40,6 +40,13 @@ instance (server-side) that all players' addon settings point at. See
 the right ports, deploying `voice-server` (Docker/Coolify), and the in-game settings players need
 to configure.
 
+## Reporting a bug
+
+The addon writes a diagnostic log to `%APPDATA%\Tfrs\Extension\extension.log`. Attaching it (and
+saying roughly when the problem happened) is the difference between a guess and a fix — see
+[`docs/reporting-bugs.md`](docs/reporting-bugs.md) for where to find it, how to grab just the
+relevant part, and what else is worth including.
+
 ## Status
 
 Native voice path (`addon/extensions/task_force_radio_pipe/src/Voice/`): implemented and
