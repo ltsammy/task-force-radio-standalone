@@ -32,6 +32,9 @@ constexpr auto kServerTimeout = std::chrono::seconds(15);
 // we just keep making fresh 5x1.5s handshake attempts indefinitely, a few seconds apart.
 constexpr auto kReconnectInterval = std::chrono::seconds(2);
 constexpr int kSocketRecvTimeoutMs = 300;
+// Upper bound on how many datagrams one pumpReceive() call will drain before handing control back
+// to threadMain's periodic housekeeping. See pumpReceive() for why an unbounded drain is a bug.
+constexpr int kMaxPacketsPerPump = 256;
 
 bool sha256(const std::string& input, uint8_t out[32]) {
     bool ok = false;
@@ -405,19 +408,36 @@ void VoiceNetworkClient::pumpReceive() {
     const SOCKET s = reinterpret_cast<SOCKET>(m_socket);
     uint8_t buf[2048];
 
-    for (;;) {
+    // Bounded on purpose. This loop used to run until recv() came back empty, which means until
+    // the socket had been idle for a full SO_RCVTIMEO (300ms) -- and on a populated server that
+    // never happens: a client receives a datagram roughly every 1.3ms, so pumpReceive() simply
+    // never returned and everything threadMain does after it never ran. Measured on the live
+    // relay with 25 clients connected: over 15 seconds it received 5112 RadioTxUpdates and
+    // exactly ZERO Pings and ZERO RosterRequests, where ~75 of each were due.
+    //
+    // Two things were starved by that, both of which look like unrelated bugs from the outside:
+    //
+    //  - requestRoster(), the safety net that re-asks the server who is connected. Without it a
+    //    ClientJoined lost from the burst the server sends on connect is never recovered, so a
+    //    player stays permanently deaf to exactly the people who were already there when they
+    //    joined -- while everyone who joins later arrives fine on their own broadcast.
+    //  - the Ping, which is a silent listener's only keepalive once the client has nothing else
+    //    to send. The server drops a session it has not heard from for 20s.
+    //
+    // Returning early loses nothing: whatever is still queued is drained on the next iteration,
+    // a few hundred microseconds later.
+    for (int drained = 0; drained < kMaxPacketsPerPump; ++drained) {
         const int n = recv(s, reinterpret_cast<char*>(buf), sizeof(buf), 0);
-        if (n > 0) {
-            m_lastRecvTime = std::chrono::steady_clock::now();
-            try {
-                handlePacket(buf, static_cast<size_t>(n));
-            } catch (...) {
-                // Malformed datagram -- drop just this one and keep the connection alive, same
-                // policy as the C# reference ("any parse exception... is caught and ignored").
-            }
-            continue;  // drain any more queued datagrams before falling through to housekeeping
+        if (n <= 0) {
+            return;  // SO_RCVTIMEO timeout, or a genuine recv error -- nothing more to read
         }
-        return;  // SO_RCVTIMEO timeout, or a genuine recv error -- either way, nothing more to read
+        m_lastRecvTime = std::chrono::steady_clock::now();
+        try {
+            handlePacket(buf, static_cast<size_t>(n));
+        } catch (...) {
+            // Malformed datagram -- drop just this one and keep the connection alive, same
+            // policy as the C# reference ("any parse exception... is caught and ignored").
+        }
     }
 }
 
