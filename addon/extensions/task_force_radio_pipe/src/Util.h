@@ -16,6 +16,14 @@ namespace tfrs {
 constexpr float kPi = 3.14159265358979323846f;
 constexpr float kCantSpeakDistance = 5.0f;   // CANT_SPEAK_DISTANCE
 constexpr float kCantSpeakGain = 14.0f;      // CANT_SPEAK_GAIN
+// SPEAKER_GAIN. Applied to audio coming out of a radio in speaker mode INSTEAD OF the headset
+// path's volumeMultiplier()*0.35 -- see old/ts/src/plugin.cpp, where the whole radio-effect switch
+// (the one carrying volumeLevel*0.35) is guarded by `if (info.on < LISTED_ON_NONE)` with the
+// comment "don't do for onGround or Intercom", and the speaker branch instead runs the audio
+// through the speaker bandpass at a flat gain of 4. The boost compensates for how much energy that
+// bandpass removes; without it a speaker is barely audible. A speaker's volume knob only sets how
+// FAR it carries (speakerRange below), never how loud it is at the source.
+constexpr float kSpeakerGain = 4.0f;         // SPEAKER_GAIN
 constexpr float kDdMinDistance = 70.0f;      // DD_MIN_DISTANCE
 constexpr float kDdMaxDistance = 300.0f;     // DD_MAX_DISTANCE
 constexpr float kUnderwaterLevel = -1.1f;    // UNDERWATER_LEVEL

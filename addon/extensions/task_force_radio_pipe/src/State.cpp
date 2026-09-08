@@ -729,11 +729,15 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
                         std::pow(1.0f - radioVehicleLoss, 1.2f);
                 }
 
-                float volumeLevel = volumeMultiplier(static_cast<float>(speaker.volume));
                 AudibleUnit unit;
                 unit.nickname = other.nickname;
                 unit.fx = "speaker";
-                unit.gain = attenuation * volumeLevel * 0.35f;
+                // kSpeakerGain, NOT the headset path's volumeMultiplier()*0.35 -- see Util.h.
+                // Using the headset formula here made a speaker at full volume come out at 0.51
+                // instead of 4.0 (7.8x too quiet), and at half volume 0.045 instead of 4.0 (88x),
+                // which is the reported "vehicle LR speaker at 100% is barely audible". The volume
+                // knob is already accounted for: it sets speakerRange above.
+                unit.gain = attenuation * kSpeakerGain;
                 unit.az = azimuthTo(myPos, me.viewDirection, speakerPos);
                 const float range = (tx->range > 1.0f) ? tx->range : 1.0f;
                 const float distError = effDist / range;

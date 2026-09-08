@@ -17,6 +17,7 @@
 
 #include "CommandProcessor.h"
 #include "State.h"
+#include "Voice/Log.h"
 #include "Voice/VoiceSession.h"
 
 namespace {
@@ -142,6 +143,18 @@ void senderMain() {
                 send = true;
             }
 
+            if (changed) {
+                // Diagnostic-only: the one place that says, from the TRANSMITTING client's own
+                // side, whether SQF actually asked for a transmission and with what. Added while
+                // chasing a report that a vehicle driver's LR transmission reached nobody -- with
+                // this line, that splits in one step: no line means the tangent never reached the
+                // extension (SQF/keybind side), a line means the announcement went out and the
+                // problem is on the receiving side or the wire.
+                tfrs::voice::logLine(std::string("radio-tx: ") +
+                                     (localTx.active ? "START" : "STOP") + " freq='" +
+                                     localTx.freq + "' range=" + std::to_string(clampedRange) +
+                                     " subtype='" + localTx.subtype + "'");
+            }
             if (send) {
                 g_voice->sendRadioTx(localTx.active, localTx.freq, clampedRange, localTx.subtype);
                 s_sentActive = localTx.active;

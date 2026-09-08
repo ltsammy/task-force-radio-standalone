@@ -213,6 +213,13 @@ boundary moved, not the module boundary.
 - Mono downmix before the effect: `mono = sum(channels)/channelCount`, normalized `/32766`.
 - Gain per radio type: `volumeLevel * 0.35`, `volumeLevel = ((radioVolume0to10 + 1) / 10) ^ 4`.
   With the headset lowered, additionally `* 0.1`.
+- **Speakers are the exception and do not use that formula at all.** A radio in speaker mode gets a
+  flat `SPEAKER_GAIN = 4` and then distance attenuation. In the original this falls out of
+  `plugin.cpp` guarding the whole radio-effect switch with `if (info.on < LISTED_ON_NONE)`
+  ("don't do for onGround or Intercom"), so `volumeLevel * 0.35` never reaches the speaker branch.
+  The 4x compensates for the energy the speaker bandpass removes. A speaker's volume knob sets how
+  far it carries (`speakerDistance`), not how loud it is at the source — applying the headset
+  formula there instead is an 8x error at full volume and an 88x error at half.
 - Mono panning modes (`leftOnly`/`rightOnly`, from `stereoMode` in the `FREQ` frequency entry):
   gain `* 1.5`.
 - `CANT_SPEAK_GAIN = 14`, `SPEAKER_GAIN = 4`, `RADIO_GAIN_LR = 5`, `RADIO_GAIN_DD = 15`.
