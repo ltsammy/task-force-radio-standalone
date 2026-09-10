@@ -238,3 +238,12 @@ boundary moved, not the module boundary.
 - Antenna loss/vehicle isolation/object occlusion: formulas are documented (see the research this
   file was built from), but are computed in the extension and only reach the client as a finished
   `gain` factor — not part of the client's DSP pipeline.
+- **One reception path per speaker, not all of them mixed.** The original builds a *list* of
+  reception paths per remote speaker (`clientData::isOverRadio()` returns a vector) and mixes every
+  one of them additively — `radio_buffer.mixIntoAdditive(sampleBuffer)` — so a transmission can be
+  heard in your earpiece AND out of a nearby speaker simultaneously. `AudibleUnit` carries one path
+  per speaker, so `addAudibleForClientLocked` has to choose. The order is: our own radio first, then
+  the loudest speaker relaying it, then intercom, then direct speech. Choosing purely by loudness
+  does not work — at its correct `SPEAKER_GAIN` of 4 a speaker outweighs an earpiece's 0.51 every
+  time, so any speaker in range on the frequency would silently take over from the radio in your
+  ear.

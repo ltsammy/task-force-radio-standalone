@@ -576,6 +576,11 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
     // tuned to). Real radio comms work the same way: the handset in your ear wins over ambient
     // noise, it doesn't compete with it on volume.
     bool haveRadioBest = false;
+    // Specifically OUR OWN radio, as opposed to hearing the same transmission relayed out of
+    // somebody's speaker. Separate from haveRadioBest because a speaker also counts as "radio
+    // audio" for the direct-speech rule above, but must not displace the earpiece -- see the
+    // speaker block below.
+    bool haveOwnRadio = false;
 
     // Spectator rules (plugin.cpp, processVoiceData).
     const bool bothSpectating = me.isSpectating && other.isSpectating;
@@ -668,6 +673,7 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
                         best = unit;
                         haveBest = true;
                         haveRadioBest = true;
+                        haveOwnRadio = true;
                     }
                 }
             }
@@ -743,13 +749,23 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
                 const float distError = effDist / range;
                 unit.err = clampf(distError < loss ? distError : loss, 0.0f, 1.0f);
 
-                // Not gated on !haveRadioBest, unlike direct speech below: this is comparing two
-                // ways of hearing the SAME radio transmission (direct reception vs. relayed
-                // through a placed speaker), so picking whichever is louder is correct here, not
-                // a priority-order bug. It still needs to SET haveRadioBest when it wins, though,
-                // for the same reason direct radio reception does -- a speaker relaying a radio
-                // transmission is still "radio audio", not ambient noise, once it wins here.
-                if (unit.gain > 0.0f && (!haveBest || unit.gain > best.gain)) {
+                // Never displaces our own earpiece (haveOwnRadio), only louder speakers and
+                // non-radio paths.
+                //
+                // The original mixes every reception path together additively -- you hear a
+                // transmission in your headset AND out of a nearby speaker at the same time (see
+                // `radio_buffer.mixIntoAdditive(sampleBuffer)` in old/ts/src/plugin.cpp). This
+                // port carries one audible unit per remote speaker, so it has to pick one, and
+                // picking purely by loudness was wrong: with the speaker at its correct
+                // SPEAKER_GAIN of 4 it beats an earpiece's 0.51 every single time, so any speaker
+                // within range on the frequency silently took over from the radio in your ear.
+                // Reported as a vehicle driver's LR transmission not being heard at all whenever
+                // another LR radio nearby had speaker mode on.
+                //
+                // Still SETS haveRadioBest when it wins, for the same reason direct radio
+                // reception does -- a speaker relaying a transmission is still "radio audio", not
+                // ambient noise.
+                if (unit.gain > 0.0f && !haveOwnRadio && (!haveBest || unit.gain > best.gain)) {
                     best = unit;
                     haveBest = true;
                     haveRadioBest = true;
