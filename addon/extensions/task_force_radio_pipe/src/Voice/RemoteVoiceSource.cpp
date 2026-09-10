@@ -9,6 +9,37 @@
 namespace tfrs {
 namespace voice {
 
+namespace {
+
+// Left/right gains for a source, shared by the voice path and the beep overlay so a start/stop
+// cue lands in the same ear, at the same level, as the transmission it belongs to.
+//
+// stereoMode (the per-radio "which ear" setting, FREQ's 3rd field) is a hard channel cut, not a
+// spatial pan -- it overrides azimuth entirely when set. Matches the original TS3 plugin's
+// RadioEffect.hpp processRadioEffect: the silenced channel carries none of the signal, and the
+// remaining one gets a 1.5x boost to compensate for losing the other ear's share.
+void channelGains(const RemoteSourceState& state, float& leftGain, float& rightGain) {
+    if (state.stereoMode == 1) {  // leftOnly
+        leftGain = state.gain * 1.5f;
+        rightGain = 0.0f;
+    } else if (state.stereoMode == 2) {  // rightOnly
+        leftGain = 0.0f;
+        rightGain = state.gain * 1.5f;
+    } else {
+        const auto [left, right] = Panning::compute(state.azimuthRadians);
+        leftGain = left * state.gain;
+        rightGain = right * state.gain;
+    }
+}
+
+// Whether we are currently hearing this source AS RADIO AUDIO, as opposed to hearing the person
+// directly or over a vehicle intercom. Only then does a radio start/stop cue belong in our ears.
+bool isRadioReception(SourceEffect effect) {
+    return effect != SourceEffect::Direct && effect != SourceEffect::Intercom;
+}
+
+}  // namespace
+
 RemoteVoiceSource::RemoteVoiceSource(uint32_t sessionId, std::string uid)
     : m_sessionId(sessionId), m_uid(std::move(uid)) {
     m_decodedShorts.resize(static_cast<size_t>(OpusFormat::kFrameSamples));
@@ -122,22 +153,8 @@ bool RemoteVoiceSource::tryProduceNextFrame() {
     ensureEffectChain(state.effect);
     m_effectChain->process(m_monoFrame.data(), m_monoFrame.size(), state.errorLevel);
 
-    // stereoMode (per-radio "which ear" setting, FREQ's 3rd field) is a hard channel cut, not a
-    // spatial pan -- overrides azimuth entirely when set. Matches the original TFAR TS plugin's
-    // RadioEffect.hpp processRadioEffect: the silenced channel carries none of the signal, and the
-    // remaining one gets a 1.5x gain boost to compensate for losing the other ear's share.
     float leftGain, rightGain;
-    if (state.stereoMode == 1) {  // leftOnly
-        leftGain = state.gain * 1.5f;
-        rightGain = 0.0f;
-    } else if (state.stereoMode == 2) {  // rightOnly
-        leftGain = 0.0f;
-        rightGain = state.gain * 1.5f;
-    } else {
-        const auto [left, right] = Panning::compute(state.azimuthRadians);
-        leftGain = left * state.gain;
-        rightGain = right * state.gain;
-    }
+    channelGains(state, leftGain, rightGain);
     for (size_t i = 0; i < m_monoFrame.size(); ++i) {
         m_stereoFrame[i * 2] = std::clamp(m_monoFrame[i] * leftGain, -1.0f, 1.0f);
         m_stereoFrame[i * 2 + 1] = std::clamp(m_monoFrame[i] * rightGain, -1.0f, 1.0f);
@@ -192,10 +209,17 @@ void RemoteVoiceSource::render(float* out, size_t frameCount) {
         state = m_state;
     }
     if (state.muted) return;  // matches tryProduceNextFrame's own muted gate
+    // A radio cue only belongs in our ears while we are actually receiving that person ON A RADIO.
+    // The trigger itself fires on the network thread for every RadioTxBroadcast the relay sends,
+    // from every client, with no idea whether we share a frequency -- so without this, anyone
+    // standing close enough to be audible as direct speech also delivered their start/stop beeps
+    // for channels we are not even on. Re-evaluated on every render call, not latched at trigger
+    // time, so a cue for a transmission we DO receive still starts as soon as the audibility
+    // solver's next tick (~66ms) says so.
+    if (!isRadioReception(state.effect)) return;
 
-    const auto [left, right] = Panning::compute(state.azimuthRadians);
-    const float leftGain = left * state.gain;
-    const float rightGain = right * state.gain;
+    float leftGain, rightGain;
+    channelGains(state, leftGain, rightGain);
     const size_t toMix = std::min(frameCount, m_beepTotal - m_beepPos);
     for (size_t i = 0; i < toMix; ++i) {
         const float s = m_beepSamples[m_beepPos + i] / 32768.0f;

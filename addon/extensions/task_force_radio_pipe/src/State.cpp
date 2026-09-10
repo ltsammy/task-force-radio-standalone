@@ -791,6 +791,14 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
         if (unit.gain > 0.0f && (!haveBest || unit.gain > best.gain)) {
             best = unit;
             haveBest = true;
+            // Intercom is in your ear, exactly like a radio, so direct speech must not displace
+            // it -- and on raw gain it always would: intercomVolume defaults to 0.3 while direct
+            // speech at 3m is about 0.6, and the two only cross over at ~7m. Everyone sitting in
+            // the same land vehicle is well inside that, so the intercom path could win the
+            // comparison essentially never, which is the reported "intercom does not work in
+            // vehicles". The original does not have to choose -- it mixes both (see section 8 of
+            // docs/dsp-audio-pipeline.md).
+            haveRadioBest = true;
         }
     }
 
