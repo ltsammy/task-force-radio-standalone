@@ -53,7 +53,7 @@ void PlaybackMixer::addSource(uint32_t sessionId, const std::string& uid) {
         // radio effect, set once at creation -- VoiceSession.applyAudibility() never touches a
         // source's state at all while this is on (see its own early return), so this is the only
         // place that sets it.
-        source->setState(RemoteSourceState{1.0f, 0.0f, false, SourceEffect::Direct, 0.0f});
+        source->setStates({RemoteSourceState{1.0f, 0.0f, false, SourceEffect::Direct, 0.0f}});
     }
     m_sources.emplace(sessionId, std::move(source));
     // Diagnostic-only: the voice connection deliberately survives Arma mission transitions, so
@@ -63,10 +63,10 @@ void PlaybackMixer::addSource(uint32_t sessionId, const std::string& uid) {
            " (active sources now " + std::to_string(m_sources.size()) + ")");
 }
 
-void PlaybackMixer::setSourceState(uint32_t sessionId, const RemoteSourceState& state) {
+void PlaybackMixer::setSourceStates(uint32_t sessionId, const RemoteSourcePaths& states) {
     std::lock_guard<std::mutex> lock(m_sourcesMutex);
     const auto it = m_sources.find(sessionId);
-    if (it != m_sources.end()) it->second->setState(state);
+    if (it != m_sources.end()) it->second->setStates(states);
 }
 
 void PlaybackMixer::enqueueOpusFrame(uint32_t sessionId, const uint8_t* opus, size_t opusLen,

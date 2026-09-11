@@ -568,19 +568,17 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
 
     const bool headsetLowered = configBool("headsetLowered", false);
 
-    AudibleUnit best;
-    best.nickname = other.nickname;
-    bool haveBest = false;
-    // Radio is "in your ear" -- once selected, direct/ambient speech must never displace it just
-    // for having higher raw gain (e.g. someone standing close to you who's also on the radio you're
-    // tuned to). Real radio comms work the same way: the handset in your ear wins over ambient
-    // noise, it doesn't compete with it on volume.
-    bool haveRadioBest = false;
-    // Specifically OUR OWN radio, as opposed to hearing the same transmission relayed out of
-    // somebody's speaker. Separate from haveRadioBest because a speaker also counts as "radio
-    // audio" for the direct-speech rule above, but must not displace the earpiece -- see the
-    // speaker block below.
-    bool haveOwnRadio = false;
+    // EVERY way we can hear this person is emitted, and Voice/ mixes them all -- this function no
+    // longer picks a winner. The original works the same way: clientData::isOverRadio() returns a
+    // list and old/ts/src/plugin.cpp sums them with radio_buffer.mixIntoAdditive(sampleBuffer), on
+    // top of the direct speech already in the buffer. So somebody next to you talking on a radio
+    // you are tuned to is heard twice, which is what actually happens in real life.
+    //
+    // Choosing a single loudest path was this port's own simplification and the direct cause of
+    // three consecutive reports: a speaker silencing the radio in your ear, a driver's LR
+    // transmission vanishing whenever a speaker radio was nearby, and intercom never being audible
+    // in a vehicle because direct speech always outweighed it. Every priority rule added to paper
+    // over those is gone with it.
 
     // Spectator rules (plugin.cpp, processVoiceData).
     const bool bothSpectating = me.isSpectating && other.isSpectating;
@@ -669,12 +667,7 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
                     }
 
                     if (viaLr && setting->volume > 2) m_lrIncomingPending = true;
-                    if (unit.gain > 0.0f) {
-                        best = unit;
-                        haveBest = true;
-                        haveRadioBest = true;
-                        haveOwnRadio = true;
-                    }
+                    if (unit.gain > 0.0f) out.push_back(unit);
                 }
             }
         }
@@ -749,27 +742,9 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
                 const float distError = effDist / range;
                 unit.err = clampf(distError < loss ? distError : loss, 0.0f, 1.0f);
 
-                // Never displaces our own earpiece (haveOwnRadio), only louder speakers and
-                // non-radio paths.
-                //
-                // The original mixes every reception path together additively -- you hear a
-                // transmission in your headset AND out of a nearby speaker at the same time (see
-                // `radio_buffer.mixIntoAdditive(sampleBuffer)` in old/ts/src/plugin.cpp). This
-                // port carries one audible unit per remote speaker, so it has to pick one, and
-                // picking purely by loudness was wrong: with the speaker at its correct
-                // SPEAKER_GAIN of 4 it beats an earpiece's 0.51 every single time, so any speaker
-                // within range on the frequency silently took over from the radio in your ear.
-                // Reported as a vehicle driver's LR transmission not being heard at all whenever
-                // another LR radio nearby had speaker mode on.
-                //
-                // Still SETS haveRadioBest when it wins, for the same reason direct radio
-                // reception does -- a speaker relaying a transmission is still "radio audio", not
-                // ambient noise.
-                if (unit.gain > 0.0f && !haveOwnRadio && (!haveBest || unit.gain > best.gain)) {
-                    best = unit;
-                    haveBest = true;
-                    haveRadioBest = true;
-                }
+                // Additive alongside the earpiece above, not instead of it: hearing the same
+                // transmission out of a nearby speaker AND in your own ear is the real behaviour.
+                if (unit.gain > 0.0f) out.push_back(unit);
             }
         }
     }
@@ -788,18 +763,7 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
         unit.gain = intercomVolume;
         unit.az = 0.0f;
         unit.err = 0.0f;
-        if (unit.gain > 0.0f && (!haveBest || unit.gain > best.gain)) {
-            best = unit;
-            haveBest = true;
-            // Intercom is in your ear, exactly like a radio, so direct speech must not displace
-            // it -- and on raw gain it always would: intercomVolume defaults to 0.3 while direct
-            // speech at 3m is about 0.6, and the two only cross over at ~7m. Everyone sitting in
-            // the same land vehicle is well inside that, so the intercom path could win the
-            // comparison essentially never, which is the reported "intercom does not work in
-            // vehicles". The original does not have to choose -- it mixes both (see section 8 of
-            // docs/dsp-audio-pipeline.md).
-            haveRadioBest = true;
-        }
+        if (unit.gain > 0.0f) out.push_back(unit);
     }
 
     // -- 4) direct speech ---------------------------------------------------
@@ -840,13 +804,8 @@ void State::addAudibleForClientLocked(const RemoteClient& me, const RemoteClient
         unit.gain = gain;
         unit.az = azimuthTo(myPos, me.viewDirection, hisPos);
         unit.err = 0.0f;
-        if (unit.gain > 0.0f && !haveRadioBest && (!haveBest || unit.gain > best.gain)) {
-            best = unit;
-            haveBest = true;
-        }
+        if (unit.gain > 0.0f) out.push_back(unit);
     }
-
-    if (haveBest) out.push_back(best);
 }
 
 std::vector<AudibleUnit> State::computeAudibleUnits() {

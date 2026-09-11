@@ -186,7 +186,23 @@ without any Arma/SQF dependency:
   Arma-independent signal processing (foldback/delay/ringmod, RBJ/Butterworth filters, panning,
   mixing, compressor) — exactly what's documented here. No geometry/physics code here at all.
 
-Two ordering rules inside that split are load-bearing, and both were once broken:
+**Every reception path is mixed, none is chosen.** `computeAudibleUnits()` emits one `AudibleUnit`
+per *way* you can hear someone — their radio, a speaker relaying it, an intercom, direct speech —
+so several rows can carry the same uid. `RemoteVoiceSource` decodes the Opus stream once and then
+runs each path over its own copy of the mono frame, with its own effect chain and gain/pan, summing
+the results. That mirrors the original exactly: `clientData::isOverRadio()` returns a list and
+`old/ts/src/plugin.cpp` finishes each one with `radio_buffer.mixIntoAdditive(sampleBuffer)`, on top
+of the direct speech already in the buffer. Somebody next to you talking on a radio you are tuned
+to is therefore heard twice, which is what happens in reality.
+
+This port originally picked a single loudest path instead, and that shortcut caused three
+consecutive field reports before it was removed: a speaker silencing the radio in your ear, a
+driver's LR transmission vanishing whenever a speaker radio was nearby, and intercom never being
+audible inside a vehicle (0.3 against direct speech's 0.6 at 3m, crossing over only at ~7m). Any
+priority ordering layered on top of a single-path model reproduces that class of bug; do not
+reintroduce one.
+
+Two further ordering rules inside the split are load-bearing, and both were once broken:
 
 - **Speaker radios are not gated on the listener's own tuning.** In `addAudibleForClientLocked`
   the "external speakers on the sender's frequency" pass sits next to the local-radio pass, not
@@ -238,12 +254,5 @@ boundary moved, not the module boundary.
 - Antenna loss/vehicle isolation/object occlusion: formulas are documented (see the research this
   file was built from), but are computed in the extension and only reach the client as a finished
   `gain` factor — not part of the client's DSP pipeline.
-- **One reception path per speaker, not all of them mixed.** The original builds a *list* of
-  reception paths per remote speaker (`clientData::isOverRadio()` returns a vector) and mixes every
-  one of them additively — `radio_buffer.mixIntoAdditive(sampleBuffer)` — so a transmission can be
-  heard in your earpiece AND out of a nearby speaker simultaneously. `AudibleUnit` carries one path
-  per speaker, so `addAudibleForClientLocked` has to choose. The order is: our own radio first, then
-  the loudest speaker relaying it, then intercom, then direct speech. Choosing purely by loudness
-  does not work — at its correct `SPEAKER_GAIN` of 4 a speaker outweighs an earpiece's 0.51 every
-  time, so any speaker in range on the frequency would silently take over from the radio in your
-  ear.
+(Reception paths are **not** on this list: like the original, every way you can hear one person is
+mixed additively — see section 6.)

@@ -42,7 +42,8 @@ public:
 
     // All no-ops for an unknown sessionId except addSource, which creates it if missing.
     void addSource(uint32_t sessionId, const std::string& uid);
-    void setSourceState(uint32_t sessionId, const RemoteSourceState& state);
+    // Every way this session is currently audible, all mixed. Empty = inaudible.
+    void setSourceStates(uint32_t sessionId, const RemoteSourcePaths& states);
     void enqueueOpusFrame(uint32_t sessionId, const uint8_t* opus, size_t opusLen, bool isLast);
     void removeSource(uint32_t sessionId);
     void removeAllSources();

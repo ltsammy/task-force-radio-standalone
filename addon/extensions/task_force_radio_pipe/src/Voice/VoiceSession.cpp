@@ -149,9 +149,10 @@ void VoiceSession::applyAudibility(const std::vector<AudibilityUpdate>& units) {
     // anyone back, keeping this a clean test of raw voice transport.
     if (m_playback.debugForceAudible()) return;
 
-    std::vector<uint32_t> seenSessionIds;
-    seenSessionIds.reserve(units.size());
-
+    // Several rows can resolve to the SAME session -- one per way we currently hear that person
+    // (their radio, a speaker relaying it, direct speech) -- and all of them get mixed, so they
+    // are grouped rather than letting whichever arrives last win.
+    std::unordered_map<uint32_t, RemoteSourcePaths> pathsBySession;
     {
         std::lock_guard<std::mutex> lock(m_rosterMutex);
         for (const AudibilityUpdate& unit : units) {
@@ -174,11 +175,17 @@ void VoiceSession::applyAudibility(const std::vector<AudibilityUpdate>& units) {
             }
             if (!resolved) continue;  // not on the voice server (yet)
 
-            seenSessionIds.push_back(sessionId);
-            m_playback.setSourceState(
-                sessionId, RemoteSourceState{unit.gain, unit.azimuth, unit.muted, unit.effect,
-                                             unit.errorLevel, unit.stereoMode});
+            pathsBySession[sessionId].push_back(RemoteSourceState{
+                unit.gain, unit.azimuth, unit.muted, unit.effect, unit.errorLevel,
+                unit.stereoMode});
         }
+    }
+
+    std::vector<uint32_t> seenSessionIds;
+    seenSessionIds.reserve(pathsBySession.size());
+    for (const auto& entry : pathsBySession) {
+        seenSessionIds.push_back(entry.first);
+        m_playback.setSourceStates(entry.first, entry.second);
     }
 
     // Full-replace semantics: anything previously active but missing from this snapshot goes
@@ -186,7 +193,7 @@ void VoiceSession::applyAudibility(const std::vector<AudibilityUpdate>& units) {
     const std::unordered_set<uint32_t> seenSet(seenSessionIds.begin(), seenSessionIds.end());
     for (uint32_t sessionId : m_lastActiveSessionIds) {
         if (seenSet.find(sessionId) == seenSet.end()) {
-            m_playback.setSourceState(sessionId, RemoteSourceState::silent());
+            m_playback.setSourceStates(sessionId, RemoteSourcePaths{});
         }
     }
 

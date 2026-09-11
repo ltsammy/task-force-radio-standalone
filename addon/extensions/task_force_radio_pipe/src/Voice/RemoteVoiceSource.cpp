@@ -45,14 +45,18 @@ RemoteVoiceSource::RemoteVoiceSource(uint32_t sessionId, std::string uid)
     m_decodedShorts.resize(static_cast<size_t>(OpusFormat::kFrameSamples));
     m_monoFrame.resize(static_cast<size_t>(OpusFormat::kFrameSamples));
     m_stereoFrame.resize(static_cast<size_t>(OpusFormat::kFrameSamples) * 2);
+    m_pathScratch.resize(static_cast<size_t>(OpusFormat::kFrameSamples));
     m_stereoFramePos = m_stereoFrame.size();  // force a decode on the first render()
-    ensureEffectChain(SourceEffect::Direct);
 }
 
-void RemoteVoiceSource::ensureEffectChain(SourceEffect effect) {
-    if (m_effectChain && effect == m_currentEffect) return;
-    m_currentEffect = effect;
-    m_effectChain = std::make_unique<RadioEffectChain>(effect);
+RadioEffectChain& RemoteVoiceSource::chainForPath(size_t index, SourceEffect effect) {
+    if (m_chains.size() <= index) m_chains.resize(index + 1);
+    PathChain& slot = m_chains[index];
+    if (!slot.chain || slot.effect != effect) {
+        slot.effect = effect;
+        slot.chain = std::make_unique<RadioEffectChain>(effect);
+    }
+    return *slot.chain;
 }
 
 void RemoteVoiceSource::enqueueOpusFrame(const uint8_t* opus, size_t opusLen, bool isLast) {
@@ -61,19 +65,25 @@ void RemoteVoiceSource::enqueueOpusFrame(const uint8_t* opus, size_t opusLen, bo
     while (m_pending.size() > kMaxQueuedFrames) m_pending.pop_front();
 }
 
-void RemoteVoiceSource::setState(const RemoteSourceState& state) {
+void RemoteVoiceSource::setStates(const RemoteSourcePaths& states) {
     std::lock_guard<std::mutex> lock(m_stateMutex);
-    m_state = state;
+    m_states = states;
 }
 
 bool RemoteVoiceSource::tryProduceNextFrame() {
-    RemoteSourceState state;
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
-        state = m_state;
+        m_renderStates = m_states;
     }
+    // Drop paths that carry nothing, so "can we hear this person at all" is just "is the list
+    // empty" from here on.
+    m_renderStates.erase(std::remove_if(m_renderStates.begin(), m_renderStates.end(),
+                                        [](const RemoteSourceState& s) {
+                                            return s.muted || !(s.gain > 0.0f);
+                                        }),
+                         m_renderStates.end());
 
-    if (state.muted) {
+    if (m_renderStates.empty()) {
         m_isPlaying = false;
         m_concealmentCount = 0;
         // Actually drop the queued packets, and always report "produced nothing".
@@ -85,7 +95,7 @@ bool RemoteVoiceSource::tryProduceNextFrame() {
         // muted mid-talkspurt (walked out of range, retuned, transmission ended) turned into a
         // permanent 50 Hz buzz of that final frame. That is the intermittent
         // noise/interference players have been reporting.
-        std::lock_guard<std::mutex> lock(m_queueMutex);
+        std::lock_guard<std::mutex> lock(m_queueMutex);  // NOLINT: mirrors the muted-source drain
         m_pending.clear();
         return false;
     }
@@ -150,15 +160,35 @@ bool RemoteVoiceSource::tryProduceNextFrame() {
 
     for (size_t i = 0; i < m_decodedShorts.size(); ++i) m_monoFrame[i] = m_decodedShorts[i] / 32768.0f;
 
-    ensureEffectChain(state.effect);
-    m_effectChain->process(m_monoFrame.data(), m_monoFrame.size(), state.errorLevel);
+    // Decode once, then run EVERY way we can hear this person over its own copy and sum them.
+    // This is what the original does -- old/ts/src/plugin.cpp loops over the reception paths,
+    // copies the decoded buffer per path (`originalBuffer.copy()`), applies that path's effect and
+    // gain, and finishes with `radio_buffer.mixIntoAdditive(sampleBuffer)`. Picking a single
+    // "loudest" path instead was this port's own simplification, and it was the root cause behind
+    // three separate reports in a row: a speaker silencing the radio in your ear, a driver's LR
+    // transmission vanishing whenever a speaker radio was nearby, and intercom never being heard
+    // inside a vehicle because direct speech always outweighed it.
+    std::fill(m_stereoFrame.begin(), m_stereoFrame.end(), 0.0f);
+    for (size_t p = 0; p < m_renderStates.size(); ++p) {
+        const RemoteSourceState& state = m_renderStates[p];
 
-    float leftGain, rightGain;
-    channelGains(state, leftGain, rightGain);
-    for (size_t i = 0; i < m_monoFrame.size(); ++i) {
-        m_stereoFrame[i * 2] = std::clamp(m_monoFrame[i] * leftGain, -1.0f, 1.0f);
-        m_stereoFrame[i * 2 + 1] = std::clamp(m_monoFrame[i] * rightGain, -1.0f, 1.0f);
+        std::copy(m_monoFrame.begin(), m_monoFrame.end(), m_pathScratch.begin());
+        chainForPath(p, state.effect).process(m_pathScratch.data(), m_pathScratch.size(),
+                                              state.errorLevel);
+
+        float leftGain, rightGain;
+        channelGains(state, leftGain, rightGain);
+        for (size_t i = 0; i < m_pathScratch.size(); ++i) {
+            m_stereoFrame[i * 2] += m_pathScratch[i] * leftGain;
+            m_stereoFrame[i * 2 + 1] += m_pathScratch[i] * rightGain;
+        }
     }
+    // Clamped once on the sum, not per path -- clamping each path first would let a loud one
+    // silently eat the headroom the others need. PlaybackMixer soft-clips the full mix after this.
+    for (float& sample : m_stereoFrame) sample = std::clamp(sample, -1.0f, 1.0f);
+
+    // Chains for paths that no longer exist would otherwise keep their filter state forever.
+    if (m_chains.size() > m_renderStates.size()) m_chains.resize(m_renderStates.size());
     return true;
 }
 
@@ -203,20 +233,27 @@ void RemoteVoiceSource::render(float* out, size_t frameCount) {
 
     if (m_beepPos >= m_beepTotal) return;
 
+    // A radio cue only belongs in our ears while we are actually receiving that person ON A RADIO,
+    // and it should arrive in the same ear and at the same level as that radio. The trigger itself
+    // fires on the network thread for every RadioTxBroadcast the relay sends, from every client,
+    // with no idea whether we share a frequency -- so without this, anyone close enough to be
+    // audible as direct speech also delivered their start/stop beeps for channels we are not even
+    // on. Re-evaluated on every render call, not latched at trigger time, so a cue for a
+    // transmission we DO receive still starts as soon as the audibility solver's next tick
+    // (~66ms) says so.
     RemoteSourceState state;
+    bool haveRadioPath = false;
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
-        state = m_state;
+        for (const RemoteSourceState& candidate : m_states) {
+            if (candidate.muted || !(candidate.gain > 0.0f)) continue;
+            if (!isRadioReception(candidate.effect)) continue;
+            state = candidate;
+            haveRadioPath = true;
+            break;
+        }
     }
-    if (state.muted) return;  // matches tryProduceNextFrame's own muted gate
-    // A radio cue only belongs in our ears while we are actually receiving that person ON A RADIO.
-    // The trigger itself fires on the network thread for every RadioTxBroadcast the relay sends,
-    // from every client, with no idea whether we share a frequency -- so without this, anyone
-    // standing close enough to be audible as direct speech also delivered their start/stop beeps
-    // for channels we are not even on. Re-evaluated on every render call, not latched at trigger
-    // time, so a cue for a transmission we DO receive still starts as soon as the audibility
-    // solver's next tick (~66ms) says so.
-    if (!isRadioReception(state.effect)) return;
+    if (!haveRadioPath) return;
 
     float leftGain, rightGain;
     channelGains(state, leftGain, rightGain);

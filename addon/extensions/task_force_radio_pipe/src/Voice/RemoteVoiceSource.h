@@ -28,10 +28,14 @@ struct RemoteSourceState {
     float errorLevel = 0.0f;
     int stereoMode = 0;  // 0 = stereo, 1 = leftOnly, 2 = rightOnly -- hard ear cut, bypasses azimuth panning
 
-    static RemoteSourceState silent() {
-        return RemoteSourceState{0.0f, 0.0f, true, SourceEffect::Direct, 0.0f, 0};
-    }
 };
+
+// Everything we can currently hear ONE remote speaker through, at once. The original mixes every
+// reception path additively (`radio_buffer.mixIntoAdditive(sampleBuffer)` in old/ts/src/plugin.cpp,
+// looping over clientData::isOverRadio()'s list), so somebody standing next to you while talking on
+// a radio you are tuned to is heard twice: their actual voice, plus the radio with its effect. An
+// empty list means we cannot hear them at all right now.
+using RemoteSourcePaths = std::vector<RemoteSourceState>;
 
 class RemoteVoiceSource {
 public:
@@ -44,8 +48,9 @@ public:
     // isLast marks the sender's explicit end-of-talkspurt frame (VoiceUp's LastFrame flag).
     void enqueueOpusFrame(const uint8_t* opus, size_t opusLen, bool isLast);
 
-    // Called from the extension's main tick thread (Phase 4: with State's computed audibility).
-    void setState(const RemoteSourceState& state);
+    // Called from the extension's main tick thread with State's computed audibility: every way we
+    // currently hear this speaker, all of which get mixed. Empty = inaudible.
+    void setStates(const RemoteSourcePaths& states);
 
     // Called from the network thread (VoiceSession's onRadioTx, on a start/end edge). Queues a
     // one-shot overlay, mixed into the next render() calls at this source's current gain/azimuth
@@ -59,7 +64,13 @@ public:
 
 private:
     bool tryProduceNextFrame();
-    void ensureEffectChain(SourceEffect effect);
+    // Returns the effect chain for path `index`, rebuilding it if that slot is now carrying a
+    // different effect. Per-slot rather than per-effect: two simultaneous paths of the same kind
+    // (two speakers relaying one transmission) each need their own filter/delay/phase state, and
+    // running one chain over the same frame twice would feed the second pass the first pass's
+    // state. Path order out of State's solver is stable across ticks, so in practice a slot keeps
+    // its chain (and therefore its filter state) for the whole talkspurt.
+    RadioEffectChain& chainForPath(size_t index, SourceEffect effect);
 
     // PLC exhaustion means packets stopped arriving with no explicit end-of-talkspurt marker.
     // That claim only became TRUE once enqueueOpusFrame started honouring VoiceUp's LastFrame
@@ -98,15 +109,19 @@ private:
     // specific to each client's own path to the relay, not the transmitted audio itself. Repeated
     // concealment-exhaustion for one session is the direct signature of that.
     int m_concealmentExhaustedCount = 0;
-    // Fully reconstructed whenever the effect type changes -- each effect owns its own filter/
-    // delay/phase state that must never be shared or reset mid-talkspurt (matches the C#
-    // reference's EnsureEffectChain).
-    std::unique_ptr<RadioEffectChain> m_effectChain;
-    SourceEffect m_currentEffect = SourceEffect::Direct;
+    std::vector<float> m_pathScratch;  // OpusFormat::kFrameSamples, one path's copy of the mono frame
+    struct PathChain {
+        SourceEffect effect = SourceEffect::Direct;
+        std::unique_ptr<RadioEffectChain> chain;
+    };
+    std::vector<PathChain> m_chains;  // parallel to the path list, see chainForPath()
 
     // Written from the main tick thread, read from the render thread.
     std::mutex m_stateMutex;
-    RemoteSourceState m_state = RemoteSourceState::silent();
+    RemoteSourcePaths m_states;
+    // Render-thread-local copy of m_states, so the mixing loop below never holds m_stateMutex
+    // while doing DSP.
+    RemoteSourcePaths m_renderStates;
 
     // Cross-thread handoff for triggerBeep() (called from the network thread) -> render thread.
     // A single pending slot, not a queue: beep clips are short (~150-400ms) and a fresh trigger
